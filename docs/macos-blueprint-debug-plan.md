@@ -29,6 +29,8 @@ The `.github/workflows/macos-blueprint.yml` workflow runs on `macos-latest`, ins
 
 The standard build remains covered by the split target sequence and a final `lake build` check, and Mathlib cache retrieval is an explicit measured step. Each timed command prints process snapshots every 60 seconds while it is running.
 
+The workflow restores and saves `.lake` with a key derived from `runner.os`, `runner.arch`, `lean-toolchain`, `lakefile.toml`, and `lake-manifest.json`. The save happens immediately after the final standard `lake build` check and before the intentionally failing `lean --run` threshold step, so repeated debugging runs can reuse the expensive setup/build work.
+
 Manual dispatch inputs:
 
 - `timing_threshold_seconds`: override the default 60 second failure threshold.

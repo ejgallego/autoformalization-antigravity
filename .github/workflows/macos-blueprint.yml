@@ -51,6 +51,13 @@ jobs:
           use-github-cache: false
           use-mathlib-cache: false
 
+      - name: Restore Lake build cache
+        id: lake-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .lake
+          key: lake-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain', 'lakefile.toml', 'lake-manifest.json') }}
+
       - name: Lean context
         shell: bash
         run: |
@@ -113,6 +120,13 @@ jobs:
           set -euo pipefail
           bash scripts/ci-timed.sh "Final standard lake build check" lake build
 
+      - name: Save Lake build cache
+        if: ${{ always() && steps.lake-cache.outputs.cache-hit != 'true' && steps.lake-build.conclusion == 'success' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .lake
+          key: ${{ steps.lake-cache.outputs.cache-primary-key }}
+
       - name: Time BlueprintMain with lean --run
         id: blueprint-lean-run
         shell: bash
@@ -146,6 +160,7 @@ jobs:
             echo "### macOS Blueprint timing"
             echo ""
             echo "- Threshold: ${BLUEPRINT_TIMING_THRESHOLD_SECONDS}s"
+            echo "- Lake cache hit: ${{ steps.lake-cache.outputs.cache-hit || 'false' }}"
             echo "- Mathlib cache retrieval: ${{ steps.mathlib-cache.outputs.elapsed_seconds || 'not recorded' }}s"
             echo "- VersoBlueprint dependency build: ${{ steps.verso-build.outputs.elapsed_seconds || 'not recorded' }}s"
             echo "- TeX prelude build: ${{ steps.tex-prelude-build.outputs.elapsed_seconds || 'not recorded' }}s"
