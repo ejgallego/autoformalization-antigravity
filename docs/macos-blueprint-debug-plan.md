@@ -57,7 +57,18 @@ Run `27722404967` on 2026-06-17 confirmed the reported slow command on macOS wit
 - `lake env lean --run BlueprintMain.lean`: 147 seconds, failing the 60 second threshold.
 - During `lean --run`, the `lean` process used about 50.8% memory but only about 10-18% CPU in snapshots, suggesting waiting, paging, or I/O rather than pure CPU saturation.
 
-This suggests the next useful split is project-module timing, not just whole-build timing.
+Run `27725050908` verified the `.lake` cache:
+
+- Cache hit: `lake-macOS-ARM64-bf841b6917025e996a8033309fc5bfcd9c70feaee894da293728819347c07217`.
+- Restored cache size: about 2.5 GB.
+- `lake exe cache get`: 24 seconds.
+- `lake build VersoBlueprint`: 2 seconds.
+- `lake build DominoPuzzleProof.Chapters.DominoPuzzleProof`: 8 seconds.
+- `lake build DominoPuzzleProof`: 12 seconds.
+- Final `lake build`: 8 seconds.
+- `lake env lean --run BlueprintMain.lean`: 135 seconds, so the slow runtime signal remains after removing repeated build setup.
+
+The cache removes most repeated setup cost. The remaining investigation should focus on why `lean --run` spends more than two minutes after the project is already built.
 
 ## If macOS Is Slow
 
