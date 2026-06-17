@@ -29,7 +29,9 @@ The `.github/workflows/macos-blueprint.yml` workflow runs on `macos-latest`, ins
 
 The standard build remains covered by the split target sequence and a final `lake build` check, and Mathlib cache retrieval is an explicit measured step. Each timed command prints process snapshots every 60 seconds while it is running.
 
-The workflow restores and saves `.lake` with a key derived from `runner.os`, `runner.arch`, `lean-toolchain`, `lakefile.toml`, and `lake-manifest.json`. The save happens immediately after the final standard `lake build` check and before the intentionally failing `lean --run` threshold step, so repeated debugging runs can reuse the expensive setup/build work.
+The workflow restores and saves `.lake` with a primary key derived from `runner.os`, `runner.arch`, dependency files, and project Lean sources. It also has dependency-level restore fallbacks so source-only edits can start from the expensive dependency build cache while saving a fresh source-specific cache after a successful standard build.
+
+The save happens immediately after the final standard `lake build` check and before the intentionally failing `lean --run` threshold step, so repeated debugging runs can reuse the expensive setup/build work.
 
 Manual dispatch inputs:
 
@@ -69,6 +71,35 @@ Run `27725050908` verified the `.lake` cache:
 - `lake env lean --run BlueprintMain.lean`: 135 seconds, so the slow runtime signal remains after removing repeated build setup.
 
 The cache removes most repeated setup cost. The remaining investigation should focus on why `lean --run` spends more than two minutes after the project is already built.
+
+## Root Cause and Fix
+
+The slow path was caused by `DominoPuzzleProof/Chapters/DominoPuzzleProof.lean` importing bare `Mathlib`. The blueprint runner imports the chapter document, so `lake env lean --run BlueprintMain.lean` had to load and finalize the full mathlib import closure even though the embedded Lean snippets only need `Finset` and finite-sum notation.
+
+A tmate session on the same macOS worker as run `27726851856` measured:
+
+- Before narrowing the import: `real 181.46`, `user 15.96`, `sys 37.92`.
+- During the run, `lean` reached about 3.6 GB RSS with low CPU.
+- `lsof` for the process showed about 10,000 open file entries, including 7,421 `.olean*` files and 2,564 `.ir` files, mostly from mathlib.
+- `sample` pointed at `Lean_importModules` / `Lean_finalizeImport`, especially persistent environment extension finalization.
+
+Replacing `import Mathlib` with:
+
+```lean
+import Mathlib.Algebra.BigOperators.Group.Finset.Basic
+import Mathlib.Data.Finset.Basic
+```
+
+keeps the project build working and reduced the same macOS worker's `lake env lean --run BlueprintMain.lean` runtime to `real 8.90`, `user 3.70`, `sys 4.79`.
+
+The Linux checkout also remains fast after the change:
+
+```text
+/usr/bin/time -p lake env lean --run BlueprintMain.lean
+real 3.37
+user 2.76
+sys 0.63
+```
 
 ## If macOS Is Slow
 

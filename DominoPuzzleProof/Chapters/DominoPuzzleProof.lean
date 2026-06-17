@@ -1,7 +1,8 @@
 import Verso
 import VersoManual
 import VersoBlueprint
-import Mathlib
+import Mathlib.Algebra.BigOperators.Group.Finset.Basic
+import Mathlib.Data.Finset.Basic
 
 open Verso.Genre
 open Verso.Genre.Manual
