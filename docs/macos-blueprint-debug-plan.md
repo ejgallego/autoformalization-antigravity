@@ -44,6 +44,17 @@ Run `27720072576` on 2026-06-17 was cancelled after the standard build finished 
 - Within `lake build`, `DominoPuzzleProof` took 130 seconds.
 - A later split run showed `lake build blueprint-gen` was slow enough to block reaching the `lean --run` timing, so the workflow now runs `lean --run` before executable build comparison.
 
+Run `27722404967` on 2026-06-17 confirmed the reported slow command on macOS with Lean 4.31.0:
+
+- Lean: `4.31.0`, `arm64-apple-darwin24.6.0`.
+- `lake exe cache get`: 168 seconds.
+- `lake build VersoBlueprint`: 220 seconds.
+- `lake build DominoPuzzleProof.Chapters.DominoPuzzleProof`: 263 seconds.
+- `lake build DominoPuzzleProof`: 172 seconds.
+- Final `lake build`: 26 seconds.
+- `lake env lean --run BlueprintMain.lean`: 147 seconds, failing the 60 second threshold.
+- During `lean --run`, the `lean` process used about 50.8% memory but only about 10-18% CPU in snapshots, suggesting waiting, paging, or I/O rather than pure CPU saturation.
+
 This suggests the next useful split is project-module timing, not just whole-build timing.
 
 ## If macOS Is Slow
@@ -59,12 +70,13 @@ This suggests the next useful split is project-module timing, not just whole-bui
    - `lake env lean --run BlueprintMain.lean`: Lean interpreter startup or module loading.
    - `lake build blueprint-gen`: executable-specific compilation/linking.
    - `.lake/build/bin/blueprint-gen`: generated executable runtime.
-4. Re-run manually with `ssh_debug: true` and inspect the live worker:
+4. Inspect the `sample` output from the `BlueprintMain via lean --run` step. If it points at filesystem access, module deserialization, or runtime rendering, add a narrower probe for that path.
+5. Re-run manually with `ssh_debug: true` and inspect the live worker:
    - `time lake env lean --run BlueprintMain.lean`
    - `ps -ef | grep '[l]ean'`
    - `sample <pid> 10`
    - `lsof -p <pid>`
    - `vmmap <pid> | head -80`
-5. If the slow path is specific to `lean --run`, compare it against the compiled executable path and then bisect imports in a throwaway branch between `BlueprintMain.lean`, `VersoManual`, `VersoBlueprint.PreviewManifest`, and `DominoPuzzleProof`.
-6. If the slow path is in file or process startup, collect a short `fs_usage` sample from the SSH session and compare it with Linux file access patterns.
-7. Keep SSH runs manual only; do not leave persistent debug services enabled outside `workflow_dispatch`.
+6. If the slow path is specific to `lean --run`, compare it against the compiled executable path and then bisect imports in a throwaway branch between `BlueprintMain.lean`, `VersoManual`, `VersoBlueprint.PreviewManifest`, and `DominoPuzzleProof`.
+7. If the slow path is in file or process startup, collect a short `fs_usage` sample from the SSH session and compare it with Linux file access patterns.
+8. Keep SSH runs manual only; do not leave persistent debug services enabled outside `workflow_dispatch`.

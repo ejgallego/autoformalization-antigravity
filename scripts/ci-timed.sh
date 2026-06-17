@@ -22,6 +22,15 @@ sample_processes() {
     date -u
     ps -axo pid,ppid,%cpu,%mem,etime,command | grep -E '([l]ake|[l]ean|[c]lang|[l]d)' || true
     echo "::endgroup::"
+
+    if [ "$(uname -s)" = "Darwin" ] && [ "${CI_TIMED_SAMPLE:-}" = "1" ]; then
+      pids="$(pgrep -f 'lean --run BlueprintMain\.lean' || true)"
+      for pid in $pids; do
+        echo "::group::sample $pid for $label"
+        sample "$pid" 5 1 || true
+        echo "::endgroup::"
+      done
+    fi
   done
 }
 

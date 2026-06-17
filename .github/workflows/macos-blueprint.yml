@@ -118,12 +118,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          CI_TIMED_SAMPLE=1 \
           CI_TIMED_THRESHOLD_SECONDS="$BLUEPRINT_TIMING_THRESHOLD_SECONDS" \
             bash scripts/ci-timed.sh "BlueprintMain via lean --run" lake env lean --run BlueprintMain.lean
 
       - name: Build blueprint executable
         id: blueprint-exe-build
-        if: ${{ always() && steps.blueprint-lean-run.conclusion != 'cancelled' }}
+        if: ${{ steps.blueprint-lean-run.conclusion == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
