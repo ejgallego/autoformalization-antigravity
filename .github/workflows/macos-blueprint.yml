@@ -1,0 +1,100 @@
+name: macOS Blueprint Timing
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+  workflow_dispatch:
+    inputs:
+      timing_threshold_seconds:
+        description: "Fail if BlueprintMain runtime exceeds this many seconds after the build."
+        required: true
+        default: "60"
+      ssh_debug:
+        description: "Open an SSH session on the macOS runner before timing."
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: macos-blueprint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-blueprint:
+    name: macOS standard build and Blueprint timing
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      BLUEPRINT_TIMING_THRESHOLD_SECONDS: ${{ github.event.inputs.timing_threshold_seconds || '60' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Runner context
+        shell: bash
+        run: |
+          set -euo pipefail
+          sw_vers
+          uname -a
+          sysctl -n machdep.cpu.brand_string || true
+
+      - name: Standard Lean build
+        uses: leanprover/lean-action@v1
+        with:
+          build: true
+          test: false
+          lint: false
+          use-mathlib-cache: true
+
+      - name: Lean context
+        shell: bash
+        run: |
+          set -euo pipefail
+          lean --version
+          lake --version
+          lake env lean --version
+          lake env env | sort | grep -E '^(LAKE|LEAN|PATH)=' || true
+
+      - name: Optional SSH debug session
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ssh_debug }}
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true
+
+      - name: Time BlueprintMain
+        id: blueprint-timing
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! [[ "$BLUEPRINT_TIMING_THRESHOLD_SECONDS" =~ ^[0-9]+$ ]]; then
+            echo "Invalid timing threshold: $BLUEPRINT_TIMING_THRESHOLD_SECONDS" >&2
+            exit 2
+          fi
+
+          start="$(date +%s)"
+          /usr/bin/time -p lake env lean --run BlueprintMain.lean
+          end="$(date +%s)"
+          elapsed="$((end - start))"
+
+          echo "elapsed_seconds=$elapsed" >> "$GITHUB_OUTPUT"
+          echo "BlueprintMain elapsed seconds: $elapsed"
+
+          if (( elapsed > BLUEPRINT_TIMING_THRESHOLD_SECONDS )); then
+            echo "::error::BlueprintMain took ${elapsed}s, above ${BLUEPRINT_TIMING_THRESHOLD_SECONDS}s."
+            exit 1
+          fi
+
+      - name: Timing summary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          {
+            echo "### macOS Blueprint timing"
+            echo ""
+            echo "- Threshold: ${BLUEPRINT_TIMING_THRESHOLD_SECONDS}s"
+            echo "- Elapsed: ${{ steps.blueprint-timing.outputs.elapsed_seconds || 'not recorded' }}s"
+          } >> "$GITHUB_STEP_SUMMARY"
