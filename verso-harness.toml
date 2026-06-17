@@ -1,0 +1,8 @@
+package_name = "Domino"
+blueprint_main = "BlueprintMain.lean"
+formalization_path = "Domino"
+chapter_root = "DominoPuzzleProof/Chapters"
+tex_source_glob = "domino-puzzle-proof-gemini.md"
+
+[lt]
+default_chapters = ["DominoPuzzleProof"]
