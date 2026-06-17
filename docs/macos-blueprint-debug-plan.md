@@ -23,8 +23,8 @@ The `.github/workflows/macos-blueprint.yml` workflow runs on `macos-latest`, ins
 4. `lake build DominoPuzzleProof.Chapters.DominoPuzzleProof`
 5. `lake build DominoPuzzleProof`
 6. `lake build`
-7. `lake build blueprint-gen`
-8. `lake env lean --run BlueprintMain.lean`
+7. `lake env lean --run BlueprintMain.lean`
+8. `lake build blueprint-gen`
 9. `.lake/build/bin/blueprint-gen`
 
 The standard build remains covered by the split target sequence and a final `lake build` check, and Mathlib cache retrieval is an explicit measured step. Each timed command prints process snapshots every 60 seconds while it is running.
@@ -42,6 +42,7 @@ Run `27720072576` on 2026-06-17 was cancelled after the standard build finished 
 - `lake build`: 596 seconds.
 - Within `lake build`, `DominoPuzzleProof.Chapters.DominoPuzzleProof` took 238 seconds.
 - Within `lake build`, `DominoPuzzleProof` took 130 seconds.
+- A later split run showed `lake build blueprint-gen` was slow enough to block reaching the `lean --run` timing, so the workflow now runs `lean --run` before executable build comparison.
 
 This suggests the next useful split is project-module timing, not just whole-build timing.
 
@@ -55,8 +56,8 @@ This suggests the next useful split is project-module timing, not just whole-bui
    - `lake build DominoPuzzleProof.Chapters.DominoPuzzleProof`: chapter document elaboration.
    - `lake build DominoPuzzleProof`: main manual elaboration and rendering-related elaboration.
    - Final `lake build`: confirmation that the split target sequence covered the standard build.
-   - `lake build blueprint-gen`: executable-specific compilation/linking.
    - `lake env lean --run BlueprintMain.lean`: Lean interpreter startup or module loading.
+   - `lake build blueprint-gen`: executable-specific compilation/linking.
    - `.lake/build/bin/blueprint-gen`: generated executable runtime.
 4. Re-run manually with `ssh_debug: true` and inspect the live worker:
    - `time lake env lean --run BlueprintMain.lean`

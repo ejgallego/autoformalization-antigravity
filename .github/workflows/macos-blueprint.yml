@@ -113,13 +113,6 @@ jobs:
           set -euo pipefail
           bash scripts/ci-timed.sh "Final standard lake build check" lake build
 
-      - name: Build blueprint executable
-        id: blueprint-exe-build
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash scripts/ci-timed.sh "Blueprint executable build" lake build blueprint-gen
-
       - name: Time BlueprintMain with lean --run
         id: blueprint-lean-run
         shell: bash
@@ -127,6 +120,14 @@ jobs:
           set -euo pipefail
           CI_TIMED_THRESHOLD_SECONDS="$BLUEPRINT_TIMING_THRESHOLD_SECONDS" \
             bash scripts/ci-timed.sh "BlueprintMain via lean --run" lake env lean --run BlueprintMain.lean
+
+      - name: Build blueprint executable
+        id: blueprint-exe-build
+        if: ${{ always() && steps.blueprint-lean-run.conclusion != 'cancelled' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci-timed.sh "Blueprint executable build" lake build blueprint-gen
 
       - name: Time compiled blueprint executable
         id: blueprint-exe-run
