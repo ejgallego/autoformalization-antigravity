@@ -63,14 +63,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          start="$(date +%s)"
-          /usr/bin/time -p lake exe cache get
-          end="$(date +%s)"
-          elapsed="$((end - start))"
-
-          echo "elapsed_seconds=$elapsed" >> "$GITHUB_OUTPUT"
-          echo "Mathlib cache retrieval elapsed seconds: $elapsed"
+          bash scripts/ci-timed.sh "Mathlib cache retrieval" lake exe cache get
 
       - name: Lake environment context
         shell: bash
@@ -79,63 +72,61 @@ jobs:
           lake env lean --version
           lake env env | sort | grep -E '^(LAKE|LEAN|PATH)=' || true
 
-      - name: Time standard lake build
-        id: lake-build
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          start="$(date +%s)"
-          /usr/bin/time -p lake build
-          end="$(date +%s)"
-          elapsed="$((end - start))"
-
-          echo "elapsed_seconds=$elapsed" >> "$GITHUB_OUTPUT"
-          echo "Standard lake build elapsed seconds: $elapsed"
-
-      - name: Build blueprint executable
-        id: blueprint-exe-build
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          start="$(date +%s)"
-          /usr/bin/time -p lake build blueprint-gen
-          end="$(date +%s)"
-          elapsed="$((end - start))"
-
-          echo "elapsed_seconds=$elapsed" >> "$GITHUB_OUTPUT"
-          echo "Blueprint executable build elapsed seconds: $elapsed"
-
       - name: Optional SSH debug session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.ssh_debug }}
         uses: mxschmitt/action-tmate@v3
         with:
           limit-access-to-actor: true
 
+      - name: Time VersoBlueprint dependency build
+        id: verso-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci-timed.sh "VersoBlueprint dependency build" lake build VersoBlueprint
+
+      - name: Time TeX prelude build
+        id: tex-prelude-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci-timed.sh "DominoPuzzleProof.TeXPrelude build" lake build DominoPuzzleProof.TeXPrelude
+
+      - name: Time chapter build
+        id: chapter-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci-timed.sh "DominoPuzzleProof.Chapters.DominoPuzzleProof build" lake build DominoPuzzleProof.Chapters.DominoPuzzleProof
+
+      - name: Time manual build
+        id: manual-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci-timed.sh "DominoPuzzleProof manual build" lake build DominoPuzzleProof
+
+      - name: Time final standard lake build check
+        id: lake-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci-timed.sh "Final standard lake build check" lake build
+
+      - name: Build blueprint executable
+        id: blueprint-exe-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci-timed.sh "Blueprint executable build" lake build blueprint-gen
+
       - name: Time BlueprintMain with lean --run
         id: blueprint-lean-run
         shell: bash
         run: |
           set -euo pipefail
-
-          if ! [[ "$BLUEPRINT_TIMING_THRESHOLD_SECONDS" =~ ^[0-9]+$ ]]; then
-            echo "Invalid timing threshold: $BLUEPRINT_TIMING_THRESHOLD_SECONDS" >&2
-            exit 2
-          fi
-
-          start="$(date +%s)"
-          /usr/bin/time -p lake env lean --run BlueprintMain.lean
-          end="$(date +%s)"
-          elapsed="$((end - start))"
-
-          echo "elapsed_seconds=$elapsed" >> "$GITHUB_OUTPUT"
-          echo "BlueprintMain elapsed seconds: $elapsed"
-
-          if (( elapsed > BLUEPRINT_TIMING_THRESHOLD_SECONDS )); then
-            echo "::error::BlueprintMain took ${elapsed}s, above ${BLUEPRINT_TIMING_THRESHOLD_SECONDS}s."
-            exit 1
-          fi
+          CI_TIMED_THRESHOLD_SECONDS="$BLUEPRINT_TIMING_THRESHOLD_SECONDS" \
+            bash scripts/ci-timed.sh "BlueprintMain via lean --run" lake env lean --run BlueprintMain.lean
 
       - name: Time compiled blueprint executable
         id: blueprint-exe-run
@@ -143,14 +134,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          start="$(date +%s)"
-          /usr/bin/time -p .lake/build/bin/blueprint-gen
-          end="$(date +%s)"
-          elapsed="$((end - start))"
-
-          echo "elapsed_seconds=$elapsed" >> "$GITHUB_OUTPUT"
-          echo "Compiled blueprint executable elapsed seconds: $elapsed"
+          bash scripts/ci-timed.sh "Compiled blueprint executable runtime" .lake/build/bin/blueprint-gen
 
       - name: Timing summary
         if: ${{ always() }}
@@ -161,7 +145,11 @@ jobs:
             echo ""
             echo "- Threshold: ${BLUEPRINT_TIMING_THRESHOLD_SECONDS}s"
             echo "- Mathlib cache retrieval: ${{ steps.mathlib-cache.outputs.elapsed_seconds || 'not recorded' }}s"
-            echo "- Standard lake build: ${{ steps.lake-build.outputs.elapsed_seconds || 'not recorded' }}s"
+            echo "- VersoBlueprint dependency build: ${{ steps.verso-build.outputs.elapsed_seconds || 'not recorded' }}s"
+            echo "- TeX prelude build: ${{ steps.tex-prelude-build.outputs.elapsed_seconds || 'not recorded' }}s"
+            echo "- Chapter build: ${{ steps.chapter-build.outputs.elapsed_seconds || 'not recorded' }}s"
+            echo "- Manual build: ${{ steps.manual-build.outputs.elapsed_seconds || 'not recorded' }}s"
+            echo "- Final standard lake build check: ${{ steps.lake-build.outputs.elapsed_seconds || 'not recorded' }}s"
             echo "- Blueprint executable build: ${{ steps.blueprint-exe-build.outputs.elapsed_seconds || 'not recorded' }}s"
             echo "- BlueprintMain via lean --run: ${{ steps.blueprint-lean-run.outputs.elapsed_seconds || 'not recorded' }}s"
             echo "- Compiled blueprint executable: ${{ steps.blueprint-exe-run.outputs.elapsed_seconds || 'not recorded' }}s"

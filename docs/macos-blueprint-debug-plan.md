@@ -18,17 +18,32 @@ Treat a post-build macOS runtime above 60 seconds as abnormal until we have bett
 The `.github/workflows/macos-blueprint.yml` workflow runs on `macos-latest`, installs the Lean toolchain with `leanprover/lean-action@v1`, then times each relevant phase explicitly:
 
 1. `lake exe cache get`
-2. `lake build`
-3. `lake build blueprint-gen`
-4. `lake env lean --run BlueprintMain.lean`
-5. `.lake/build/bin/blueprint-gen`
+2. `lake build VersoBlueprint`
+3. `lake build DominoPuzzleProof.TeXPrelude`
+4. `lake build DominoPuzzleProof.Chapters.DominoPuzzleProof`
+5. `lake build DominoPuzzleProof`
+6. `lake build`
+7. `lake build blueprint-gen`
+8. `lake env lean --run BlueprintMain.lean`
+9. `.lake/build/bin/blueprint-gen`
 
-The standard build remains `lake build`, and Mathlib cache retrieval is an explicit measured step.
+The standard build remains covered by the split target sequence and a final `lake build` check, and Mathlib cache retrieval is an explicit measured step. Each timed command prints process snapshots every 60 seconds while it is running.
 
 Manual dispatch inputs:
 
 - `timing_threshold_seconds`: override the default 60 second failure threshold.
-- `ssh_debug`: open a short-lived tmate SSH session after the build and before the timing step.
+- `ssh_debug`: open a short-lived tmate SSH session after setup/cache retrieval and before the build steps.
+
+## First macOS Observation
+
+Run `27720072576` on 2026-06-17 was cancelled after the standard build finished but before executable timing completed:
+
+- `lake exe cache get`: 232 seconds.
+- `lake build`: 596 seconds.
+- Within `lake build`, `DominoPuzzleProof.Chapters.DominoPuzzleProof` took 238 seconds.
+- Within `lake build`, `DominoPuzzleProof` took 130 seconds.
+
+This suggests the next useful split is project-module timing, not just whole-build timing.
 
 ## If macOS Is Slow
 
@@ -36,7 +51,10 @@ Manual dispatch inputs:
 2. Compare runner context from the log: macOS version, CPU, Lean version, Lake version, and the manifest revisions.
 3. Use the timing summary to classify the slow phase:
    - `lake exe cache get`: dependency checkout, cache executable build, or Mathlib cache download.
-   - `lake build`: Verso/SubVerso/project compilation after Mathlib cache retrieval.
+   - `lake build VersoBlueprint`: Verso/SubVerso/VersoBlueprint compilation after Mathlib cache retrieval.
+   - `lake build DominoPuzzleProof.Chapters.DominoPuzzleProof`: chapter document elaboration.
+   - `lake build DominoPuzzleProof`: main manual elaboration and rendering-related elaboration.
+   - Final `lake build`: confirmation that the split target sequence covered the standard build.
    - `lake build blueprint-gen`: executable-specific compilation/linking.
    - `lake env lean --run BlueprintMain.lean`: Lean interpreter startup or module loading.
    - `.lake/build/bin/blueprint-gen`: generated executable runtime.
