@@ -23,9 +23,9 @@ concurrency:
 
 jobs:
   macos-blueprint:
-    name: macOS standard build and Blueprint timing
+    name: macOS instrumented build and Blueprint timing
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       BLUEPRINT_TIMING_THRESHOLD_SECONDS: ${{ github.event.inputs.timing_threshold_seconds || '60' }}
 
@@ -41,13 +41,15 @@ jobs:
           uname -a
           sysctl -n machdep.cpu.brand_string || true
 
-      - name: Standard Lean build
+      - name: Setup Lean
         uses: leanprover/lean-action@v1
         with:
-          build: true
+          auto-config: false
+          build: false
           test: false
           lint: false
-          use-mathlib-cache: true
+          use-github-cache: false
+          use-mathlib-cache: false
 
       - name: Lean context
         shell: bash
@@ -55,8 +57,55 @@ jobs:
           set -euo pipefail
           lean --version
           lake --version
+
+      - name: Time Mathlib cache retrieval
+        id: mathlib-cache
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          start="$(date +%s)"
+          /usr/bin/time -p lake exe cache get
+          end="$(date +%s)"
+          elapsed="$((end - start))"
+
+          echo "elapsed_seconds=$elapsed" >> "$GITHUB_OUTPUT"
+          echo "Mathlib cache retrieval elapsed seconds: $elapsed"
+
+      - name: Lake environment context
+        shell: bash
+        run: |
+          set -euo pipefail
           lake env lean --version
           lake env env | sort | grep -E '^(LAKE|LEAN|PATH)=' || true
+
+      - name: Time standard lake build
+        id: lake-build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          start="$(date +%s)"
+          /usr/bin/time -p lake build
+          end="$(date +%s)"
+          elapsed="$((end - start))"
+
+          echo "elapsed_seconds=$elapsed" >> "$GITHUB_OUTPUT"
+          echo "Standard lake build elapsed seconds: $elapsed"
+
+      - name: Build blueprint executable
+        id: blueprint-exe-build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          start="$(date +%s)"
+          /usr/bin/time -p lake build blueprint-gen
+          end="$(date +%s)"
+          elapsed="$((end - start))"
+
+          echo "elapsed_seconds=$elapsed" >> "$GITHUB_OUTPUT"
+          echo "Blueprint executable build elapsed seconds: $elapsed"
 
       - name: Optional SSH debug session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.ssh_debug }}
@@ -64,8 +113,8 @@ jobs:
         with:
           limit-access-to-actor: true
 
-      - name: Time BlueprintMain
-        id: blueprint-timing
+      - name: Time BlueprintMain with lean --run
+        id: blueprint-lean-run
         shell: bash
         run: |
           set -euo pipefail
@@ -88,6 +137,21 @@ jobs:
             exit 1
           fi
 
+      - name: Time compiled blueprint executable
+        id: blueprint-exe-run
+        if: ${{ always() && steps.blueprint-exe-build.conclusion == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          start="$(date +%s)"
+          /usr/bin/time -p .lake/build/bin/blueprint-gen
+          end="$(date +%s)"
+          elapsed="$((end - start))"
+
+          echo "elapsed_seconds=$elapsed" >> "$GITHUB_OUTPUT"
+          echo "Compiled blueprint executable elapsed seconds: $elapsed"
+
       - name: Timing summary
         if: ${{ always() }}
         shell: bash
@@ -96,5 +160,9 @@ jobs:
             echo "### macOS Blueprint timing"
             echo ""
             echo "- Threshold: ${BLUEPRINT_TIMING_THRESHOLD_SECONDS}s"
-            echo "- Elapsed: ${{ steps.blueprint-timing.outputs.elapsed_seconds || 'not recorded' }}s"
+            echo "- Mathlib cache retrieval: ${{ steps.mathlib-cache.outputs.elapsed_seconds || 'not recorded' }}s"
+            echo "- Standard lake build: ${{ steps.lake-build.outputs.elapsed_seconds || 'not recorded' }}s"
+            echo "- Blueprint executable build: ${{ steps.blueprint-exe-build.outputs.elapsed_seconds || 'not recorded' }}s"
+            echo "- BlueprintMain via lean --run: ${{ steps.blueprint-lean-run.outputs.elapsed_seconds || 'not recorded' }}s"
+            echo "- Compiled blueprint executable: ${{ steps.blueprint-exe-run.outputs.elapsed_seconds || 'not recorded' }}s"
           } >> "$GITHUB_STEP_SUMMARY"

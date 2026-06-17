@@ -15,7 +15,15 @@ Treat a post-build macOS runtime above 60 seconds as abnormal until we have bett
 
 ## CI Signal
 
-The `.github/workflows/macos-blueprint.yml` workflow runs on `macos-latest`, performs the standard Lean build with `leanprover/lean-action@v1`, forces the Mathlib cache with `use-mathlib-cache: true`, and then times the exact Blueprint command.
+The `.github/workflows/macos-blueprint.yml` workflow runs on `macos-latest`, installs the Lean toolchain with `leanprover/lean-action@v1`, then times each relevant phase explicitly:
+
+1. `lake exe cache get`
+2. `lake build`
+3. `lake build blueprint-gen`
+4. `lake env lean --run BlueprintMain.lean`
+5. `.lake/build/bin/blueprint-gen`
+
+The standard build remains `lake build`, and Mathlib cache retrieval is an explicit measured step.
 
 Manual dispatch inputs:
 
@@ -26,10 +34,12 @@ Manual dispatch inputs:
 
 1. Rerun the workflow once to rule out runner noise or cache warmup effects.
 2. Compare runner context from the log: macOS version, CPU, Lean version, Lake version, and the manifest revisions.
-3. Separate the phases:
-   - Standard build time from the `lean-action` step.
-   - Post-build `lake env lean --run BlueprintMain.lean` time from the timing step.
-   - If needed, compare with `lake build blueprint-gen` followed by `.lake/build/bin/blueprint-gen`.
+3. Use the timing summary to classify the slow phase:
+   - `lake exe cache get`: dependency checkout, cache executable build, or Mathlib cache download.
+   - `lake build`: Verso/SubVerso/project compilation after Mathlib cache retrieval.
+   - `lake build blueprint-gen`: executable-specific compilation/linking.
+   - `lake env lean --run BlueprintMain.lean`: Lean interpreter startup or module loading.
+   - `.lake/build/bin/blueprint-gen`: generated executable runtime.
 4. Re-run manually with `ssh_debug: true` and inspect the live worker:
    - `time lake env lean --run BlueprintMain.lean`
    - `ps -ef | grep '[l]ean'`
