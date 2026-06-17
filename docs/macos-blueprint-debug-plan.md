@@ -29,7 +29,7 @@ The `.github/workflows/macos-blueprint.yml` workflow runs on `macos-latest`, ins
 
 The standard build remains covered by the split target sequence and a final `lake build` check, and Mathlib cache retrieval is an explicit measured step. Each timed command prints process snapshots every 60 seconds while it is running.
 
-The workflow restores and saves `.lake` with a primary key derived from `runner.os`, `runner.arch`, dependency files, and project Lean sources. It also has dependency-level restore fallbacks so source-only edits can start from the expensive dependency build cache while saving a fresh source-specific cache after a successful standard build.
+The workflow restores and saves a non-mathlib Lake cache with a primary key derived from `runner.os`, `runner.arch`, dependency files, and project Lean sources. It caches package sources plus non-mathlib build artifacts, but intentionally does not cache `mathlib/.lake/build`; mathlib artifacts are fetched by the explicit `lake exe cache get` step. The cache has dependency-level restore fallbacks so source-only edits can start from the expensive Verso/dependency build cache while saving a fresh source-specific cache after a successful standard build.
 
 The save happens immediately after the final standard `lake build` check and before the intentionally failing `lean --run` threshold step, so repeated debugging runs can reuse the expensive setup/build work.
 

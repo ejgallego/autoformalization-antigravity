@@ -55,11 +55,25 @@ jobs:
         id: lake-cache
         uses: actions/cache/restore@v4
         with:
-          path: .lake
-          key: lake-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain', 'lakefile.toml', 'lake-manifest.json') }}-${{ hashFiles('*.lean', 'DominoPuzzleProof/**/*.lean') }}
+          path: |
+            .lake/build
+            .lake/packages/Cli
+            .lake/packages/LeanSearchClient
+            .lake/packages/MD4Lean
+            .lake/packages/Qq
+            .lake/packages/VersoBlueprint
+            .lake/packages/aesop
+            .lake/packages/batteries
+            .lake/packages/illuminate
+            .lake/packages/importGraph
+            .lake/packages/plausible
+            .lake/packages/proofwidgets
+            .lake/packages/subverso
+            .lake/packages/verso
+            .lake/packages/verso-slides
+          key: lake-nonmathlib-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain', 'lakefile.toml', 'lake-manifest.json') }}-${{ hashFiles('*.lean', 'DominoPuzzleProof/**/*.lean') }}
           restore-keys: |
-            lake-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain', 'lakefile.toml', 'lake-manifest.json') }}-
-            lake-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain', 'lakefile.toml', 'lake-manifest.json') }}
+            lake-nonmathlib-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain', 'lakefile.toml', 'lake-manifest.json') }}-
 
       - name: Lean context
         shell: bash
