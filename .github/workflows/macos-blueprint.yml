@@ -80,10 +80,35 @@ jobs:
           lake env env | sort | grep -E '^(LAKE|LEAN|PATH)=' || true
 
       - name: Optional SSH debug session
+        id: tmate
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.ssh_debug }}
         uses: mxschmitt/action-tmate@v3
         with:
           limit-access-to-actor: true
+          detached: true
+
+      - name: Publish SSH debug info
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ssh_debug }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "ssh_command=${{ steps.tmate.outputs.ssh-command }}"
+            echo "ssh_address=${{ steps.tmate.outputs.ssh-address }}"
+            echo "web_url=${{ steps.tmate.outputs.web-url }}"
+          } > tmate-info.txt
+
+      - name: Upload SSH debug info
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ssh_debug }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmate-info
+          path: tmate-info.txt
+
+      - name: Hold SSH debug session
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ssh_debug }}
+        shell: bash
+        run: sleep 600
 
       - name: Time VersoBlueprint dependency build
         id: verso-build
