@@ -137,14 +137,14 @@ sys 1.23
 
 If the macOS matrix leg reproduces the 100s+ behavior on these files, the issue is likely in Lean/mathlib module loading or persistent environment extension finalization on macOS, not in Blueprint generation.
 
-Run `27735897915` reproduced the platform gap on the minimal bare-Mathlib file after `lake build Mathlib`:
+Run `27736289508` reproduced the platform gap on the minimal bare-Mathlib file after `lake build Mathlib`:
 
-- Ubuntu: check 6s, first run 5s, second run 5s.
-- macOS: check 109s, first run 99s, second run 101s.
+- Ubuntu: check 4s, first run 5s, second run 4s.
+- macOS: check 112s, first run 117s, second run 111s.
+- Ubuntu `CI/BlueprintWithMathlib.lean`: 8s.
+- macOS `CI/BlueprintWithMathlib.lean`: 134s.
 - macOS `lsof` saw about 10,003 open file entries during the import, including 2,466 `.olean`, 4,931 `.olean.*`, and 2,588 `.ir` files.
 - macOS `sample` again pointed at `Lean_importModules` / `Lean_finalizeImport`.
-
-The same run failed only in the Blueprint wrapper because the diagnostic workflow had not yet built `VersoManual`/project modules first; the workflow now builds the VersoBlueprint and DominoPuzzleProof targets before that wrapper step.
 
 ## If macOS Is Slow
 
