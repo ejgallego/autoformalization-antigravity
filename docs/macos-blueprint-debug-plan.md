@@ -106,10 +106,11 @@ sys 0.63
 
 The repo-local import narrowing does not explain why macOS was more than two minutes slower than Linux for the full `Mathlib` import closure. The separate manual workflow `.github/workflows/mathlib-import-timing.yml` compares Ubuntu and macOS on the same Lean 4.31.0 toolchain with these probes:
 
-1. `lake env lean CI/MathlibImportNoop.lean`
-2. `lake env lean --run CI/MathlibImportNoop.lean`
-3. A second `lake env lean --run CI/MathlibImportNoop.lean`
-4. `lake env lean --run CI/BlueprintWithMathlib.lean`
+1. `lake build Mathlib`
+2. `lake env lean CI/MathlibImportNoop.lean`
+3. `lake env lean --run CI/MathlibImportNoop.lean`
+4. A second `lake env lean --run CI/MathlibImportNoop.lean`
+5. `lake env lean --run CI/BlueprintWithMathlib.lean`
 
 `CI/MathlibImportNoop.lean` is the smallest bare-`Mathlib` executable. `CI/BlueprintWithMathlib.lean` mirrors `BlueprintMain.lean` but inserts `import Mathlib` first, so it reproduces the old heavy import path without putting that import back into the project library.
 
