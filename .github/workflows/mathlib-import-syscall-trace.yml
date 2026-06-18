@@ -1,0 +1,96 @@
+name: Mathlib Import Syscall Trace
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: mathlib-import-trace-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  syscall-trace:
+    name: Mathlib import syscall trace (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Runner context
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          case "$(uname -s)" in
+            Darwin)
+              sw_vers
+              sysctl -n machdep.cpu.brand_string || true
+              command -v dtruss || true
+              command -v fs_usage || true
+              command -v vmmap || true
+              ;;
+            Linux)
+              cat /etc/os-release || true
+              nproc || true
+              grep -m 1 'model name' /proc/cpuinfo || true
+              command -v strace || true
+              ;;
+          esac
+
+      - name: Setup Lean
+        uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
+          build: false
+          test: false
+          lint: false
+          use-github-cache: false
+          use-mathlib-cache: false
+
+      - name: Lean context
+        shell: bash
+        run: |
+          set -euo pipefail
+          lean --version
+          lake --version
+
+      - name: Time Mathlib cache retrieval
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci-timed.sh "Mathlib cache retrieval" lake exe cache get
+
+      - name: Time Mathlib umbrella build
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci-timed.sh "Mathlib umbrella build" lake build Mathlib
+
+      - name: Trace bare Mathlib import run
+        id: trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/import-syscall-trace.sh \
+            trace-out \
+            lake env lean --run CI/MathlibImportNoop.lean
+
+      - name: Upload trace artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mathlib-import-trace-${{ matrix.os }}
+          path: trace-out
+
+      - name: Trace summary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ -f trace-out/trace-summary.md ]; then
+            cat trace-out/trace-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi

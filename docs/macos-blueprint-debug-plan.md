@@ -146,6 +146,22 @@ Run `27736289508` reproduced the platform gap on the minimal bare-Mathlib file a
 - macOS `lsof` saw about 10,003 open file entries during the import, including 2,466 `.olean`, 4,931 `.olean.*`, and 2,588 `.ir` files.
 - macOS `sample` again pointed at `Lean_importModules` / `Lean_finalizeImport`.
 
+## Syscall and Filesystem Trace
+
+The manual workflow `.github/workflows/mathlib-import-syscall-trace.yml` prepares the same `lake build Mathlib` state and then traces:
+
+```text
+lake env lean --run CI/MathlibImportNoop.lean
+```
+
+The Ubuntu leg uses `strace` to capture file, mmap, read, close, fcntl, and sync-related syscalls. The macOS leg first tries `dtruss` for the nearest syscall-level comparison, then runs the command again with `fs_usage` filtering plus periodic `lsof`, `vmmap`, and `sample` snapshots. The workflow uploads raw artifacts and prints compact syscall/path summaries to the GitHub job summary.
+
+The main questions for this trace are:
+
+1. Are Linux and macOS opening/mapping the same order of magnitude of `.olean`/`.ir` artifacts?
+2. Is macOS issuing unexpected `fsync`/`msync`/fcntl calls or unusual mmap behavior?
+3. Does `fs_usage` show page-in or metadata traffic that would explain the large wall-clock/user-time gap?
+
 ## If macOS Is Slow
 
 1. Rerun the workflow once to rule out runner noise or cache warmup effects.
