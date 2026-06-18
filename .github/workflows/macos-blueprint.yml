@@ -16,6 +16,11 @@ on:
         required: true
         type: boolean
         default: false
+      build_executable:
+        description: "Also build and time the compiled blueprint executable."
+        required: true
+        type: boolean
+        default: false
 
 concurrency:
   group: macos-blueprint-${{ github.ref }}
@@ -166,7 +171,22 @@ jobs:
         if: ${{ always() && steps.lake-cache.outputs.cache-hit != 'true' && steps.lake-build.conclusion == 'success' }}
         uses: actions/cache/save@v4
         with:
-          path: .lake
+          path: |
+            .lake/build
+            .lake/packages/Cli
+            .lake/packages/LeanSearchClient
+            .lake/packages/MD4Lean
+            .lake/packages/Qq
+            .lake/packages/VersoBlueprint
+            .lake/packages/aesop
+            .lake/packages/batteries
+            .lake/packages/illuminate
+            .lake/packages/importGraph
+            .lake/packages/plausible
+            .lake/packages/proofwidgets
+            .lake/packages/subverso
+            .lake/packages/verso
+            .lake/packages/verso-slides
           key: ${{ steps.lake-cache.outputs.cache-primary-key }}
 
       - name: Time BlueprintMain with lean --run
@@ -180,7 +200,7 @@ jobs:
 
       - name: Build blueprint executable
         id: blueprint-exe-build
-        if: ${{ steps.blueprint-lean-run.conclusion == 'success' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_executable && steps.blueprint-lean-run.conclusion == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -188,7 +208,7 @@ jobs:
 
       - name: Time compiled blueprint executable
         id: blueprint-exe-run
-        if: ${{ always() && steps.blueprint-exe-build.conclusion == 'success' }}
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.build_executable && steps.blueprint-exe-build.conclusion == 'success' }}
         shell: bash
         run: |
           set -euo pipefail

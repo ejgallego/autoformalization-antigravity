@@ -24,8 +24,8 @@ The `.github/workflows/macos-blueprint.yml` workflow runs on `macos-latest`, ins
 5. `lake build DominoPuzzleProof`
 6. `lake build`
 7. `lake env lean --run BlueprintMain.lean`
-8. `lake build blueprint-gen`
-9. `.lake/build/bin/blueprint-gen`
+8. Optionally, on manual dispatch only, `lake build blueprint-gen`
+9. Optionally, on manual dispatch only, `.lake/build/bin/blueprint-gen`
 
 The standard build remains covered by the split target sequence and a final `lake build` check, and Mathlib cache retrieval is an explicit measured step. Each timed command prints process snapshots every 60 seconds while it is running.
 
@@ -37,6 +37,7 @@ Manual dispatch inputs:
 
 - `timing_threshold_seconds`: override the default 60 second failure threshold.
 - `ssh_debug`: open a short-lived tmate SSH session after setup/cache retrieval and before the build steps.
+- `build_executable`: also build and time the compiled blueprint executable as a comparison path.
 
 ## First macOS Observation
 
@@ -59,7 +60,7 @@ Run `27722404967` on 2026-06-17 confirmed the reported slow command on macOS wit
 - `lake env lean --run BlueprintMain.lean`: 147 seconds, failing the 60 second threshold.
 - During `lean --run`, the `lean` process used about 50.8% memory but only about 10-18% CPU in snapshots, suggesting waiting, paging, or I/O rather than pure CPU saturation.
 
-Run `27725050908` verified the `.lake` cache:
+Run `27725050908` verified the earlier full `.lake` cache:
 
 - Cache hit: `lake-macOS-ARM64-bf841b6917025e996a8033309fc5bfcd9c70feaee894da293728819347c07217`.
 - Restored cache size: about 2.5 GB.
@@ -70,7 +71,7 @@ Run `27725050908` verified the `.lake` cache:
 - Final `lake build`: 8 seconds.
 - `lake env lean --run BlueprintMain.lean`: 135 seconds, so the slow runtime signal remains after removing repeated build setup.
 
-The cache removes most repeated setup cost. The remaining investigation should focus on why `lean --run` spends more than two minutes after the project is already built.
+That cache removed most repeated setup cost, but it was too large because it included Mathlib build artifacts. The workflow now uses a narrower non-mathlib Lake cache for repeated setup work, while Mathlib artifacts come from `lake exe cache get`.
 
 ## Root Cause and Fix
 
