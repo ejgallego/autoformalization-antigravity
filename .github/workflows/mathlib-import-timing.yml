@@ -1,0 +1,161 @@
+name: Mathlib Import Timing
+
+on:
+  workflow_dispatch:
+    inputs:
+      ssh_debug:
+        description: "Open an SSH session on the macOS runner before timing."
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: mathlib-import-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mathlib-import:
+    name: Mathlib import timing (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Runner context
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          case "$(uname -s)" in
+            Darwin)
+              sw_vers
+              sysctl -n machdep.cpu.brand_string || true
+              ;;
+            Linux)
+              cat /etc/os-release || true
+              nproc || true
+              grep -m 1 'model name' /proc/cpuinfo || true
+              ;;
+          esac
+
+      - name: Setup Lean
+        uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
+          build: false
+          test: false
+          lint: false
+          use-github-cache: false
+          use-mathlib-cache: false
+
+      - name: Lean context
+        shell: bash
+        run: |
+          set -euo pipefail
+          lean --version
+          lake --version
+
+      - name: Time Mathlib cache retrieval
+        id: mathlib-cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci-timed.sh "Mathlib cache retrieval" lake exe cache get
+
+      - name: Lake environment context
+        shell: bash
+        run: |
+          set -euo pipefail
+          lake env lean --version
+          lake env env | sort | grep -E '^(LAKE|LEAN|PATH)=' || true
+
+      - name: Optional SSH debug session
+        id: tmate
+        if: ${{ runner.os == 'macOS' && inputs.ssh_debug }}
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true
+          detached: true
+
+      - name: Publish SSH debug info
+        if: ${{ runner.os == 'macOS' && inputs.ssh_debug }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "ssh_command=${{ steps.tmate.outputs.ssh-command }}"
+            echo "ssh_address=${{ steps.tmate.outputs.ssh-address }}"
+            echo "web_url=${{ steps.tmate.outputs.web-url }}"
+          } > tmate-info.txt
+
+      - name: Upload SSH debug info
+        if: ${{ runner.os == 'macOS' && inputs.ssh_debug }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmate-info-${{ matrix.os }}
+          path: tmate-info.txt
+
+      - name: Hold SSH debug session
+        if: ${{ runner.os == 'macOS' && inputs.ssh_debug }}
+        shell: bash
+        run: sleep 600
+
+      - name: Time bare Mathlib import check
+        id: mathlib-check
+        shell: bash
+        run: |
+          set -euo pipefail
+          CI_TIMED_SAMPLE=1 \
+          CI_TIMED_LSOF=1 \
+          CI_TIMED_SAMPLE_PATTERN='lean( .*)?CI/MathlibImportNoop\.lean' \
+            bash scripts/ci-timed.sh "Bare Mathlib import check" lake env lean CI/MathlibImportNoop.lean
+
+      - name: Time bare Mathlib import run
+        id: mathlib-run
+        shell: bash
+        run: |
+          set -euo pipefail
+          CI_TIMED_SAMPLE=1 \
+          CI_TIMED_LSOF=1 \
+          CI_TIMED_SAMPLE_PATTERN='lean( .*)?CI/MathlibImportNoop\.lean' \
+            bash scripts/ci-timed.sh "Bare Mathlib import run" lake env lean --run CI/MathlibImportNoop.lean
+
+      - name: Time bare Mathlib import run again
+        id: mathlib-run-again
+        shell: bash
+        run: |
+          set -euo pipefail
+          CI_TIMED_SAMPLE=1 \
+          CI_TIMED_LSOF=1 \
+          CI_TIMED_SAMPLE_PATTERN='lean( .*)?CI/MathlibImportNoop\.lean' \
+            bash scripts/ci-timed.sh "Bare Mathlib import run again" lake env lean --run CI/MathlibImportNoop.lean
+
+      - name: Time BlueprintMain with Mathlib first
+        id: blueprint-with-mathlib
+        shell: bash
+        run: |
+          set -euo pipefail
+          CI_TIMED_SAMPLE=1 \
+          CI_TIMED_LSOF=1 \
+          CI_TIMED_SAMPLE_PATTERN='lean( .*)?CI/BlueprintWithMathlib\.lean' \
+            bash scripts/ci-timed.sh "BlueprintMain with Mathlib first" lake env lean --run CI/BlueprintWithMathlib.lean
+
+      - name: Timing summary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          {
+            echo "### Mathlib import timing: ${{ matrix.os }}"
+            echo ""
+            echo "- Mathlib cache retrieval: ${{ steps.mathlib-cache.outputs.elapsed_seconds || 'not recorded' }}s"
+            echo "- Bare Mathlib import check: ${{ steps.mathlib-check.outputs.elapsed_seconds || 'not recorded' }}s"
+            echo "- Bare Mathlib import run: ${{ steps.mathlib-run.outputs.elapsed_seconds || 'not recorded' }}s"
+            echo "- Bare Mathlib import run again: ${{ steps.mathlib-run-again.outputs.elapsed_seconds || 'not recorded' }}s"
+            echo "- BlueprintMain with Mathlib first: ${{ steps.blueprint-with-mathlib.outputs.elapsed_seconds || 'not recorded' }}s"
+          } >> "$GITHUB_STEP_SUMMARY"

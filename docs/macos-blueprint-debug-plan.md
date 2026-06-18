@@ -73,9 +73,9 @@ Run `27725050908` verified the earlier full `.lake` cache:
 
 That cache removed most repeated setup cost, but it was too large because it included Mathlib build artifacts. The workflow now uses a narrower non-mathlib Lake cache for repeated setup work, while Mathlib artifacts come from `lake exe cache get`.
 
-## Root Cause and Fix
+## Trigger and Repo-Local Fix
 
-The slow path was caused by `DominoPuzzleProof/Chapters/DominoPuzzleProof.lean` importing bare `Mathlib`. The blueprint runner imports the chapter document, so `lake env lean --run BlueprintMain.lean` had to load and finalize the full mathlib import closure even though the embedded Lean snippets only need `Finset` and finite-sum notation.
+The repo-local trigger was `DominoPuzzleProof/Chapters/DominoPuzzleProof.lean` importing bare `Mathlib`. The blueprint runner imports the chapter document, so `lake env lean --run BlueprintMain.lean` had to load and finalize the full mathlib import closure even though the embedded Lean snippets only need `Finset` and finite-sum notation.
 
 A tmate session on the same macOS worker as run `27726851856` measured:
 
@@ -101,6 +101,38 @@ real 3.37
 user 2.76
 sys 0.63
 ```
+
+## Minimal Mathlib Import Repro
+
+The repo-local import narrowing does not explain why macOS was more than two minutes slower than Linux for the full `Mathlib` import closure. The separate manual workflow `.github/workflows/mathlib-import-timing.yml` compares Ubuntu and macOS on the same Lean 4.31.0 toolchain with these probes:
+
+1. `lake env lean CI/MathlibImportNoop.lean`
+2. `lake env lean --run CI/MathlibImportNoop.lean`
+3. A second `lake env lean --run CI/MathlibImportNoop.lean`
+4. `lake env lean --run CI/BlueprintWithMathlib.lean`
+
+`CI/MathlibImportNoop.lean` is the smallest bare-`Mathlib` executable. `CI/BlueprintWithMathlib.lean` mirrors `BlueprintMain.lean` but inserts `import Mathlib` first, so it reproduces the old heavy import path without putting that import back into the project library.
+
+Local Linux timings from this checkout:
+
+```text
+/usr/bin/time -p lake env lean CI/MathlibImportNoop.lean
+real 2.88
+user 2.04
+sys 0.85
+
+/usr/bin/time -p lake env lean --run CI/MathlibImportNoop.lean
+real 6.03
+user 2.12
+sys 1.27
+
+/usr/bin/time -p lake env lean --run CI/BlueprintWithMathlib.lean
+real 4.79
+user 3.59
+sys 1.23
+```
+
+If the macOS matrix leg reproduces the 100s+ behavior on these files, the issue is likely in Lean/mathlib module loading or persistent environment extension finalization on macOS, not in Blueprint generation.
 
 ## If macOS Is Slow
 
