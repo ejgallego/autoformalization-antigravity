@@ -110,7 +110,9 @@ The repo-local import narrowing does not explain why macOS was more than two min
 2. `lake env lean CI/MathlibImportNoop.lean`
 3. `lake env lean --run CI/MathlibImportNoop.lean`
 4. A second `lake env lean --run CI/MathlibImportNoop.lean`
-5. `lake env lean --run CI/BlueprintWithMathlib.lean`
+5. `lake build VersoBlueprint`
+6. `lake build DominoPuzzleProof`
+7. `lake env lean --run CI/BlueprintWithMathlib.lean`
 
 `CI/MathlibImportNoop.lean` is the smallest bare-`Mathlib` executable. `CI/BlueprintWithMathlib.lean` mirrors `BlueprintMain.lean` but inserts `import Mathlib` first, so it reproduces the old heavy import path without putting that import back into the project library.
 
@@ -134,6 +136,15 @@ sys 1.23
 ```
 
 If the macOS matrix leg reproduces the 100s+ behavior on these files, the issue is likely in Lean/mathlib module loading or persistent environment extension finalization on macOS, not in Blueprint generation.
+
+Run `27735897915` reproduced the platform gap on the minimal bare-Mathlib file after `lake build Mathlib`:
+
+- Ubuntu: check 6s, first run 5s, second run 5s.
+- macOS: check 109s, first run 99s, second run 101s.
+- macOS `lsof` saw about 10,003 open file entries during the import, including 2,466 `.olean`, 4,931 `.olean.*`, and 2,588 `.ir` files.
+- macOS `sample` again pointed at `Lean_importModules` / `Lean_finalizeImport`.
+
+The same run failed only in the Blueprint wrapper because the diagnostic workflow had not yet built `VersoManual`/project modules first; the workflow now builds the VersoBlueprint and DominoPuzzleProof targets before that wrapper step.
 
 ## If macOS Is Slow
 
