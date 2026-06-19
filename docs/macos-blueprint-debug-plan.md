@@ -216,6 +216,13 @@ Run `27799098281` added sync return timings:
 
 Current conclusion: macOS uses normal private/shared file mappings with the Darwin `MAP_UNIX03` bit, and sync calls are cheap. The remaining abnormal signal is still file-backed paging: hundreds of thousands of page faults/page reclaims and earlier `fs_usage` `PAGE_IN_FILE` duration while finalizing the full Mathlib import closure.
 
+The manual `.github/workflows/mathlib-import-cache-experiments.yml` workflow tests the next page-cache hypotheses without broad tracing:
+
+1. macOS baseline and immediate second `lake env lean --run CI/MathlibImportNoop.lean` runs.
+2. Explicitly reading all `LEAN_PATH` `.olean`, `.olean.*`, and `.ir` artifacts, then rerunning the bare Mathlib import.
+3. Copying the built checkout to a macOS APFS RAM disk and rerunning from there.
+4. Ubuntu warm, post-`drop_caches`, and explicit-prewarm runs for comparison.
+
 ## If macOS Is Slow
 
 1. Rerun the workflow once to rule out runner noise or cache warmup effects.

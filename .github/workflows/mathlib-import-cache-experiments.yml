@@ -1,0 +1,142 @@
+name: Mathlib Import Cache Experiments
+
+on:
+  workflow_dispatch:
+    inputs:
+      ramdisk_mb:
+        description: "macOS RAM disk size in MiB."
+        required: true
+        default: "6144"
+      ssh_debug:
+        description: "Open a short-lived SSH session before experiments on macOS."
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: mathlib-import-cache-experiments-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cache-experiments:
+    name: Mathlib import cache experiments (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Runner context
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          case "$(uname -s)" in
+            Darwin)
+              sw_vers
+              sysctl -n machdep.cpu.brand_string || true
+              df -h /
+              ;;
+            Linux)
+              cat /etc/os-release || true
+              nproc || true
+              grep -m 1 'model name' /proc/cpuinfo || true
+              df -h /
+              ;;
+          esac
+
+      - name: Setup Lean
+        uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
+          build: false
+          test: false
+          lint: false
+          use-github-cache: false
+          use-mathlib-cache: false
+
+      - name: Lean context
+        shell: bash
+        run: |
+          set -euo pipefail
+          lean --version
+          lake --version
+
+      - name: Time Mathlib cache retrieval
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci-timed.sh "Mathlib cache retrieval" lake exe cache get
+
+      - name: Time Mathlib umbrella build
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci-timed.sh "Mathlib umbrella build" lake build Mathlib
+
+      - name: Lake environment context
+        shell: bash
+        run: |
+          set -euo pipefail
+          lake env lean --version
+          lake env env | sort | grep -E '^(LAKE|LEAN|PATH)=' || true
+
+      - name: Optional SSH debug session
+        id: tmate
+        if: ${{ runner.os == 'macOS' && inputs.ssh_debug }}
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true
+          detached: true
+
+      - name: Publish SSH debug info
+        if: ${{ runner.os == 'macOS' && inputs.ssh_debug }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "ssh_command=${{ steps.tmate.outputs.ssh-command }}"
+            echo "ssh_address=${{ steps.tmate.outputs.ssh-address }}"
+            echo "web_url=${{ steps.tmate.outputs.web-url }}"
+          } > tmate-info.txt
+
+      - name: Upload SSH debug info
+        if: ${{ runner.os == 'macOS' && inputs.ssh_debug }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmate-info-cache-experiments
+          path: tmate-info.txt
+
+      - name: Hold SSH debug session
+        if: ${{ runner.os == 'macOS' && inputs.ssh_debug }}
+        shell: bash
+        run: sleep 600
+
+      - name: Run cache experiments
+        shell: bash
+        env:
+          EXPERIMENT_MODE: ${{ runner.os == 'macOS' && 'macos' || 'linux' }}
+          RAMDISK_MB: ${{ inputs.ramdisk_mb }}
+        run: |
+          set -euo pipefail
+          bash scripts/mathlib-import-cache-experiments.sh experiment-out "$EXPERIMENT_MODE"
+
+      - name: Upload cache experiment artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mathlib-import-cache-experiments-${{ matrix.os }}
+          path: experiment-out
+
+      - name: Cache experiment summary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ -f experiment-out/cache-experiments-summary.md ]; then
+            cat experiment-out/cache-experiments-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
