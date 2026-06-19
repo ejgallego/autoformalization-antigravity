@@ -176,6 +176,14 @@ Run `27797334367` on 2026-06-19 answered the first two questions and strongly po
 
 Working hypothesis after this run: macOS is paying a large file-backed page-fault cost while Lean finalizes the full Mathlib import closure from many private mapped `.olean`/`.ir` artifacts. The syscall volume itself is comparable to Linux, and there is no evidence yet for accidental sync calls.
 
+Follow-up run `27797774363` added resource counters and per-process duration summaries:
+
+- Ubuntu under `strace`: elapsed `1:02.21`, maximum RSS about 6.7 GB, 18 major page faults, and 166,929 minor page faults. The final Lean process again had about 662k `statx` and 42.3k each of `openat`, `read`, `mmap`, and `close`.
+- macOS under `fs_usage`: `217.36 real`, maximum RSS about 3.2 GB, 287,936 page reclaims, and 524,387 page faults. `fs_usage` attributed about 520,889 `PAGE_IN_FILE` events to the final Lean process, with summed duration around 154 seconds.
+- The macOS final Lean process again had the same syscall-scale operation counts as Linux: about 668k `stat64`, 42.4k `open`, 42.5k `read`, 42.4k `mmap`, 42.3k `fstat64`, and 42.3k `close`.
+
+This strengthens the hypothesis: the macOS-specific cost is page-in/page-fault behavior while touching the mapped import graph, not extra file-open volume or explicit synchronization.
+
 The next trace should be narrower:
 
 1. Use the added low-overhead page-fault counters around the import (`/usr/bin/time -l` on macOS, `/usr/bin/time -v` on Linux) to compare major faults, minor faults, page reclaims, and pageins without rerunning broad tracing.
