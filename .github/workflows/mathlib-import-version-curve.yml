@@ -17,6 +17,14 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
+            label: v4.27.0
+            toolchain: leanprover/lean4:v4.27.0
+            mathlib_ref: v4.27.0
+          - os: macos-latest
+            label: v4.27.0
+            toolchain: leanprover/lean4:v4.27.0
+            mathlib_ref: v4.27.0
+          - os: ubuntu-latest
             label: v4.30.0
             toolchain: leanprover/lean4:v4.30.0
             mathlib_ref: v4.30.0

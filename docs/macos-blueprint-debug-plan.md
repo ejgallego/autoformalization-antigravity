@@ -235,7 +235,7 @@ Updated conclusion: this is not explained by cold physical disk I/O or by Lake p
 
 The manual `.github/workflows/mathlib-import-version-curve.yml` workflow tests two additional axes:
 
-1. Lean/mathlib version pairs `v4.30.0` and `v4.31.0`, plus a `mathlib-master` row that reads mathlib's current `lean-toolchain`.
+1. Lean/mathlib version pairs including `v4.27.0`, `v4.30.0`, and `v4.31.0`, plus a `mathlib-master` row that reads mathlib's current `lean-toolchain`.
 2. An import-size curve from `Init` through narrow Mathlib modules, `Mathlib.Tactic`, and the full `Mathlib` umbrella.
 
 Run `27823586757` on 2026-06-19 completed the version/import curve:
