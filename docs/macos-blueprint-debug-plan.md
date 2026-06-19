@@ -248,11 +248,23 @@ Run `27823586757` on 2026-06-19 completed the version/import curve:
 - macOS `Mathlib` resource counters were again VM-heavy: `v4.31.0` reported 190.07 real, 23.75 user, 42.91 sys, about 3.9 GB max RSS, 316k page reclaims, and 392k page faults. Ubuntu `v4.31.0` reported 4.75 real, 2.73 user, 2.02 sys, about 6.7 GB max RSS, 160k minor faults, and zero major faults.
 - One `v4.31.0` macOS nuance: `lake exe cache get` reported 26 cache misses and `lake build Mathlib` rebuilt Batteries/Mathlib artifacts in 77 seconds. This affected total job time, but not the standalone `lake env lean --run ImportCurve/Mathlib.lean` result, which was timed after the build completed.
 
-Updated conclusion after the version curve: the pathology exists in Lean 4.30 and 4.31 on macOS, and current Lean/mathlib master appears materially better but still far from Linux behavior. The next useful experiments are:
+Follow-up run `27824550417` added Lean/mathlib `v4.27.0` and reran the newer rows:
 
-1. Bisect between Lean `4.31.0` commit `68218e876d2a38b1985b8590fff244a83c321783` and Lean `4.32.0-rc1` commit `b4812ae53eea93439ad5dce5a5c26591c31cb697`, using matching mathlib commits when available, to find the change that reduced macOS full-import time from about 190 seconds to about 114 seconds.
-2. Generate a top-level `Mathlib.lean` prefix/import bisection on macOS, so we can tell whether the 100s+ jump comes from a specific imported area or scales with the aggregate number of mapped `.olean`/`.ir` artifacts and persistent extensions.
-3. For the heaviest prefix found by that bisection, repeat the attach trace and resource counters to compare page faults, `PAGE_IN_FILE`, mapped region count, and finalization samples against the full umbrella import.
+- `v4.27.0` is affected too: Ubuntu full `import Mathlib` took 5.18 seconds, while macOS took 117.88 seconds with about 4.0 GB max RSS, 314k page reclaims, 313k page faults, and zero block input operations.
+- The repeat macOS timings were `v4.27.0` 117.88 seconds, `v4.30.0` 118 seconds, `v4.31.0` 124 seconds, and `mathlib-master`/Lean `4.32.0-rc1` 122 seconds.
+- The earlier apparent master improvement is therefore not robust enough to drive a Lean-version bisect yet; runner variance is large, but every macOS full-Mathlib import remains about two orders of magnitude slower than Linux.
+
+Updated conclusion after the version curve: the pathology exists at least as far back as Lean/mathlib `v4.27.0` on macOS. The next useful experiments are:
+
+1. Generate a top-level `Mathlib.lean` prefix/import bisection on macOS, so we can tell whether the 100s+ jump comes from a specific imported area or scales with the aggregate number of mapped `.olean`/`.ir` artifacts and persistent extensions.
+2. For the heaviest prefix found by that bisection, repeat the attach trace and resource counters to compare page faults, `PAGE_IN_FILE`, mapped region count, and finalization samples against the full umbrella import.
+3. Only if a later repeated version matrix shows a stable Lean-version step change, bisect that narrower version interval with matching mathlib commits.
+
+Known-workaround check:
+
+- `leanprover/lean-action` does not contain a macOS-specific import workaround. It installs elan, optionally restores `.lake` with an OS/architecture/toolchain/manifest cache key, optionally runs `lake exe cache get`, then runs `lake build`.
+- Its Mathlib cache handling is the standard `lake exe cache get`; the only relevant open lean-action issue found was redundant `.lake`/Mathlib caching, which concerns setup cache size and does not explain a standalone post-build `lean --run import Mathlib` taking 100s+.
+- The closest upstream Lean issue found is `leanprover/lean4#3826`, "Performance issue in importModules{WithCache}", which describes duplicate olean loading losing an mmap fast path and suggests a `ModuleData` cache. That may be adjacent but does not directly explain the single-process CLI repro, because our minimal `lake env lean --run CI/MathlibImportNoop.lean` remains slow after a standard cached build.
 
 ## If macOS Is Slow
 
