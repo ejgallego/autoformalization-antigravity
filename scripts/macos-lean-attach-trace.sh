@@ -60,7 +60,8 @@ capture_static_context() {
     ps -p "$pid" -o pid,ppid,%cpu,%mem,etime,command || true
     echo
     echo "--- lsof summary ---"
-    lsof -n -p "$pid" 2>/dev/null | awk '
+    lsof -n -p "$pid" > "$out_dir/${prefix}-lsof.txt" 2>&1 || true
+    awk '
       NR > 1 {
         total++
         if ($NF ~ /\.olean$/) olean++
@@ -71,7 +72,7 @@ capture_static_context() {
         printf "open_files=%d olean=%d olean_aux=%d ir=%d\n",
           total + 0, olean + 0, olean_aux + 0, ir + 0
       }
-    '
+    ' "$out_dir/${prefix}-lsof.txt"
     echo
     echo "--- vmmap summary ---"
     vmmap -summary "$pid" 2>/dev/null | head -120 || true
@@ -92,7 +93,23 @@ summarize_dtrace_attach() {
       {
         if ($0 ~ /probe=mmap /) mmap++
         if ($0 ~ /probe=mmap_extended/) mmap_extended++
-        if ($0 ~ /msync|fsync/) sync++
+        if ($0 ~ /probe=msync /) msync++
+        if ($0 ~ /probe=fsync /) fsync++
+        if ($0 ~ /probe=msync_return/) msync_return++
+        if ($0 ~ /probe=fsync_return/) fsync_return++
+        if ($0 ~ /probe=fsync / && match($0, /fd=-?[0-9]+/)) {
+          fd = substr($0, RSTART + 3, RLENGTH - 3)
+          sync_fds[fd]++
+        }
+        if (match($0, /elapsed_ns=[0-9]+/)) {
+          elapsed = substr($0, RSTART + 11, RLENGTH - 11)
+          sync_elapsed_total += elapsed
+          if (elapsed > sync_elapsed_max) sync_elapsed_max = elapsed
+        }
+        if (match($0, /errno=-?[0-9]+/)) {
+          errno_value = substr($0, RSTART + 6, RLENGTH - 6)
+          sync_errno[errno_value]++
+        }
         if (match($0, /arg2=-?[0-9]+/)) {
           prot = substr($0, RSTART + 5, RLENGTH - 5)
           prots[prot]++
@@ -105,20 +122,31 @@ summarize_dtrace_attach() {
       END {
         print "mmap", mmap + 0
         print "mmap_extended", mmap_extended + 0
-        print "sync_lines", sync + 0
+        print "msync_entry", msync + 0
+        print "fsync_entry", fsync + 0
+        print "msync_return", msync_return + 0
+        print "fsync_return", fsync_return + 0
+        print "sync_elapsed_total_ns", sync_elapsed_total + 0
+        print "sync_elapsed_max_ns", sync_elapsed_max + 0
         print ""
         print "arg2_prot_counts"
         for (prot in prots) print prots[prot], prot
         print ""
         print "arg3_flag_counts"
         for (flag in flags) print flags[flag], flag
+        print ""
+        print "sync_fd_counts"
+        for (fd in sync_fds) print sync_fds[fd], fd
+        print ""
+        print "sync_errno_counts"
+        for (errno_value in sync_errno) print sync_errno[errno_value], errno_value
       }
     ' "$raw"
 
     echo
     echo "### first mmap/sync lines"
     echo
-    awk '/probe=mmap|probe=mmap_extended|probe=msync|probe=fsync/ { print; if (++n == 200) exit }' "$raw" || true
+    awk '/probe=mmap|probe=mmap_extended|probe=msync|probe=fsync/ { print; if (++n == 240) exit }' "$raw" || true
 
     echo
     echo "### first error/warning lines"
@@ -158,10 +186,40 @@ if target_pid="$(wait_for_target_pid "$deadline")"; then
     echo "attaching raw DTrace mmap probe to pid $target_pid for ${attach_seconds}s at $(date -u)"
     sudo -n dtrace -q -p "$target_pid" -n '
       syscall:::entry
-      /probefunc == "mmap" || probefunc == "mmap_extended" || probefunc == "msync" || probefunc == "fsync"/
+      /probefunc == "mmap" || probefunc == "mmap_extended"/
       {
         printf("probe=%s arg0=%p arg1=%d arg2=%d arg3=%d arg4=%d arg5=%d\n",
           probefunc, arg0, arg1, arg2, arg3, arg4, arg5);
+      }
+
+      syscall::msync:entry
+      {
+        self->msync_ts = timestamp;
+        printf("probe=msync arg0=%p arg1=%d arg2=%d\n", arg0, arg1, arg2);
+      }
+
+      syscall::msync:return
+      /self->msync_ts/
+      {
+        printf("probe=msync_return elapsed_ns=%d rval=%d errno=%d\n",
+          timestamp - self->msync_ts, arg0, arg1);
+        self->msync_ts = 0;
+      }
+
+      syscall::fsync:entry
+      {
+        self->fsync_fd = arg0;
+        self->fsync_ts = timestamp;
+        printf("probe=fsync fd=%d\n", arg0);
+      }
+
+      syscall::fsync:return
+      /self->fsync_ts/
+      {
+        printf("probe=fsync_return fd=%d elapsed_ns=%d rval=%d errno=%d\n",
+          self->fsync_fd, timestamp - self->fsync_ts, arg0, arg1);
+        self->fsync_fd = 0;
+        self->fsync_ts = 0;
       }
     ' 2>&1 &
     dtrace_pid="$!"
