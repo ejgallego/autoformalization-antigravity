@@ -81,54 +81,54 @@ capture_static_context() {
   } > "$out_dir/${prefix}-context.log" 2>&1
 }
 
-summarize_dtruss_attach() {
+summarize_dtrace_attach() {
   local raw="$1"
   local out="$2"
 
   {
-    echo "### dtruss attach counts"
+    echo "### DTrace mmap attach counts"
     echo
     awk '
       {
-        line = $0
-        sub(/^[[:space:]]*[0-9]+\/0x[0-9a-f]+:[[:space:]]+/, "", line)
-        sys = line
-        sub(/\(.*/, "", sys)
-        gsub(/[[:space:]]+$/, "", sys)
-        if (sys ~ /^[A-Za-z0-9_]+$/) count[sys]++
-        if ($0 ~ /\.olean/) olean++
-        if ($0 ~ /\.olean\./) olean_aux++
-        if ($0 ~ /\.ir/) ir++
-        if ($0 ~ /MAP_SHARED/) map_shared++
-        if ($0 ~ /MAP_PRIVATE/) map_private++
+        if ($0 ~ /probe=mmap /) mmap++
+        if ($0 ~ /probe=mmap_extended/) mmap_extended++
         if ($0 ~ /msync|fsync/) sync++
+        if (match($0, /arg2=-?[0-9]+/)) {
+          prot = substr($0, RSTART + 5, RLENGTH - 5)
+          prots[prot]++
+        }
+        if (match($0, /arg3=-?[0-9]+/)) {
+          flag = substr($0, RSTART + 5, RLENGTH - 5)
+          flags[flag]++
+        }
       }
       END {
-        for (sys in count) print count[sys], sys
-        print ""
-        print "path_lines_with_olean", olean + 0
-        print "path_lines_with_olean_aux", olean_aux + 0
-        print "path_lines_with_ir", ir + 0
-        print "mmap_MAP_SHARED_lines", map_shared + 0
-        print "mmap_MAP_PRIVATE_lines", map_private + 0
+        print "mmap", mmap + 0
+        print "mmap_extended", mmap_extended + 0
         print "sync_lines", sync + 0
+        print ""
+        print "arg2_prot_counts"
+        for (prot in prots) print prots[prot], prot
+        print ""
+        print "arg3_flag_counts"
+        for (flag in flags) print flags[flag], flag
       }
-    ' "$raw" | sort -nr
+    ' "$raw"
 
     echo
     echo "### first mmap/sync lines"
     echo
-    awk '/mmap|mmap_extended|msync|fsync/ { print; if (++n == 160) exit }' "$raw" || true
+    awk '/probe=mmap|probe=mmap_extended|probe=msync|probe=fsync/ { print; if (++n == 200) exit }' "$raw" || true
 
     echo
     echo "### first error/warning lines"
     echo
-    awk '/dtrace|DTrace|failed|denied|not permitted|invalid|error|Err#/ { print; if (++n == 80) exit }' "$raw" || true
+    awk '/dtrace|DTrace|failed|denied|not permitted|invalid|error|drop/ { print; if (++n == 80) exit }' "$raw" || true
   } > "$out"
 }
 
-raw_dtruss="$out_dir/macos-dtruss-attach.raw"
-dtruss_summary="$out_dir/macos-dtruss-attach-summary.txt"
+raw_dtrace="$out_dir/macos-dtrace-mmap.raw"
+dtrace_summary="$out_dir/macos-dtrace-mmap-summary.txt"
 time_log="$out_dir/command-time.txt"
 pid_log="$out_dir/target-pid.txt"
 vm_before="$out_dir/vm-stat-before.txt"
@@ -155,16 +155,21 @@ if target_pid="$(wait_for_target_pid "$deadline")"; then
   capture_static_context "$target_pid" "before-attach"
 
   {
-    echo "attaching dtruss to pid $target_pid for ${attach_seconds}s at $(date -u)"
-    sudo -n dtruss -p "$target_pid" \
-      -t mmap -t mmap_extended -t munmap -t mprotect -t msync -t fsync \
-      -t open -t open_nocancel -t close -t read -t pread -t fcntl 2>&1 &
-    dtruss_pid="$!"
+    echo "attaching raw DTrace mmap probe to pid $target_pid for ${attach_seconds}s at $(date -u)"
+    sudo -n dtrace -q -p "$target_pid" -n '
+      syscall:::entry
+      /probefunc == "mmap" || probefunc == "mmap_extended" || probefunc == "msync" || probefunc == "fsync"/
+      {
+        printf("probe=%s arg0=%p arg1=%d arg2=%d arg3=%d arg4=%d arg5=%d\n",
+          probefunc, arg0, arg1, arg2, arg3, arg4, arg5);
+      }
+    ' 2>&1 &
+    dtrace_pid="$!"
     sleep "$attach_seconds"
-    kill "$dtruss_pid" 2>/dev/null || true
-    wait "$dtruss_pid" 2>/dev/null || true
-    echo "detached dtruss at $(date -u)"
-  } > "$raw_dtruss" 2>&1
+    kill -INT "$dtrace_pid" 2>/dev/null || true
+    wait "$dtrace_pid" 2>/dev/null || true
+    echo "detached raw DTrace mmap probe at $(date -u)"
+  } > "$raw_dtrace" 2>&1
 
   if kill -0 "$target_pid" 2>/dev/null; then
     capture_static_context "$target_pid" "after-attach"
@@ -174,7 +179,7 @@ else
   {
     echo "target process not found"
     ps -axo pid,ppid,etime,command | grep -E 'lean|lake' | grep -v grep || true
-  } > "$raw_dtruss"
+  } > "$raw_dtrace"
 fi
 
 set +e
@@ -183,7 +188,7 @@ status="$?"
 set -e
 
 vm_stat > "$vm_after" 2>&1 || true
-summarize_dtruss_attach "$raw_dtruss" "$dtruss_summary"
+summarize_dtrace_attach "$raw_dtrace" "$dtrace_summary"
 
 append_summary "Exit status: $status"
 append_summary
@@ -197,9 +202,9 @@ append_summary '```text'
 cat "$time_log" >> "$summary" || true
 append_summary '```'
 append_summary
-append_summary "### dtruss attach summary"
+append_summary "### DTrace mmap attach summary"
 append_summary '```text'
-cat "$dtruss_summary" >> "$summary"
+cat "$dtrace_summary" >> "$summary"
 append_summary '```'
 append_summary
 append_summary "### vmmap/sample excerpts"

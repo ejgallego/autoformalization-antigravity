@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       attach_seconds:
-        description: "How long to keep dtruss attached to the final Lean process."
+        description: "How long to keep DTrace attached to the final Lean process."
         required: true
         default: "45"
       ssh_debug:
