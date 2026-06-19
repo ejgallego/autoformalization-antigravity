@@ -6,7 +6,7 @@ on:
       ramdisk_mb:
         description: "macOS RAM disk size in MiB."
         required: true
-        default: "6144"
+        default: "9216"
       ssh_debug:
         description: "Open a short-lived SSH session before experiments on macOS."
         required: true

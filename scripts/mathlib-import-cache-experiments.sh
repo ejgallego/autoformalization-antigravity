@@ -148,12 +148,12 @@ cleanup() {
 trap cleanup EXIT
 
 run_macos_ramdisk() {
-  local ramdisk_mb="${RAMDISK_MB:-6144}"
+  local ramdisk_mb="${RAMDISK_MB:-9216}"
   local ramdisk_name="LeanImportRAMDisk$$"
   local mount_point="/Volumes/$ramdisk_name"
   local sectors
   local copy_log="$out_dir/macos-ramdisk-copy.log"
-  local copy_status
+  local copy_status attach_status erase_status
 
   append_summary "### macOS RAM disk setup"
   append_summary
@@ -164,8 +164,57 @@ run_macos_ramdisk() {
   append_summary
 
   sectors="$((ramdisk_mb * 2048))"
-  ramdisk_device="$(hdiutil attach -nomount "ram://$sectors")"
-  diskutil erasevolume APFS "$ramdisk_name" "$ramdisk_device" > "$out_dir/macos-ramdisk-erase.log"
+  set +e
+  ramdisk_device="$(hdiutil attach -nomount "ram://$sectors" | awk 'NR == 1 { print $1 }')"
+  attach_status="$?"
+  set -e
+
+  if [ "$attach_status" -ne 0 ] || [ -z "$ramdisk_device" ]; then
+    append_summary "### macOS RAM disk attach"
+    append_summary
+    append_summary '```text'
+    printf 'exit_status=%s\n' "$attach_status" >> "$summary"
+    printf 'device=%s\n' "$ramdisk_device" >> "$summary"
+    append_summary '```'
+    append_summary
+    echo "RAM disk attach failed; skipping RAM disk run" >&2
+    return 0
+  fi
+
+  set +e
+  diskutil eraseDisk APFS "$ramdisk_name" "$ramdisk_device" > "$out_dir/macos-ramdisk-erase.log" 2>&1
+  erase_status="$?"
+  set -e
+
+  append_summary "### macOS RAM disk erase"
+  append_summary
+  append_summary '```text'
+  printf 'exit_status=%s\n' "$erase_status" >> "$summary"
+  cat "$out_dir/macos-ramdisk-erase.log" >> "$summary" || true
+  append_summary '```'
+  append_summary
+
+  if [ "$erase_status" -ne 0 ]; then
+    echo "RAM disk erase failed; skipping RAM disk run" >&2
+    return 0
+  fi
+
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    [ -d "$mount_point" ] && break
+    sleep 1
+  done
+
+  if [ ! -d "$mount_point" ]; then
+    append_summary "### macOS RAM disk mount"
+    append_summary
+    append_summary '```text'
+    printf 'mount point not found: %s\n' "$mount_point" >> "$summary"
+    diskutil list >> "$summary" 2>&1 || true
+    append_summary '```'
+    append_summary
+    echo "RAM disk mount point not found; skipping RAM disk run" >&2
+    return 0
+  fi
 
   set +e
   rsync -a --exclude '.git' --exclude 'experiment-out' ./ "$mount_point/repo/" > "$copy_log" 2>&1
