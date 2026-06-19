@@ -223,6 +223,16 @@ The manual `.github/workflows/mathlib-import-cache-experiments.yml` workflow tes
 3. Copying the built checkout to a macOS APFS RAM disk and rerunning from there.
 4. Ubuntu warm, post-`drop_caches`, and explicit-prewarm runs for comparison.
 
+Runs `27820837960`, `27821727814`, and `27822430217` added the cache/prewarm data:
+
+- Ubuntu stayed fast when warm: about 5-6 seconds for `lake env lean --run CI/MathlibImportNoop.lean`.
+- After Linux `drop_caches`, the same command rose only to 27-34 seconds, with about 62k major faults and about 13-14 million filesystem input units. Explicitly reading the 69,484 `LEAN_PATH` `.olean*`/`.ir` files, about 7.9 GB, then restored the run to about 5-6 seconds.
+- macOS remained slow across repeated warm runs: representative timings were 157 seconds, then 118 seconds, then 127 seconds after explicit prewarm. Another runner showed 227 seconds, 194 seconds, then 220 seconds after explicit prewarm.
+- The explicit macOS prewarm did read the same 69,484 artifacts, about 7.9 GB, in 35-54 seconds, but it did not reduce the following import run to Linux-like times.
+- A 9 GiB APFS RAM disk successfully held a copied 6.7 GiB checkout. Running `lean --run CI/MathlibImportNoop.lean` directly with a translated `LEAN_PATH` from that RAM-disk copy still took 196 seconds, with 1,264,459 page faults and no block input operations.
+
+Updated conclusion: this is not explained by cold physical disk I/O or by Lake process overhead alone. Linux cold-cache behavior is much cheaper and explicit prewarm restores Linux performance, while macOS remains slow even after explicit prewarm and when the artifacts are served from a RAM-backed filesystem. The RAM-disk run adds memory pressure, so it is not a clean lower-bound benchmark, but it is strong evidence that the abnormal cost is in macOS VM/file-mapping/page-fault behavior or Lean's mapped-import access pattern on macOS.
+
 ## If macOS Is Slow
 
 1. Rerun the workflow once to rule out runner noise or cache warmup effects.
