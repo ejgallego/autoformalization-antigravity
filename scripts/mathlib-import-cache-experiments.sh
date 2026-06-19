@@ -10,6 +10,7 @@ out_dir="$1"
 mode="$2"
 mkdir -p "$out_dir"
 out_dir="$(cd "$out_dir" && pwd)"
+repo_root="$(pwd -P)"
 
 summary="$out_dir/cache-experiments-summary.md"
 : > "$summary"
@@ -151,9 +152,11 @@ run_macos_ramdisk() {
   local ramdisk_mb="${RAMDISK_MB:-9216}"
   local ramdisk_name="LeanImportRAMDisk$$"
   local mount_point="/Volumes/$ramdisk_name"
+  local ram_repo="$mount_point/repo"
   local sectors
   local copy_log="$out_dir/macos-ramdisk-copy.log"
   local copy_status attach_status erase_status
+  local ram_lean_path
 
   append_summary "### macOS RAM disk setup"
   append_summary
@@ -217,7 +220,7 @@ run_macos_ramdisk() {
   fi
 
   set +e
-  rsync -a --exclude '.git' --exclude 'experiment-out' ./ "$mount_point/repo/" > "$copy_log" 2>&1
+  rsync -a --exclude '.git' --exclude 'experiment-out' ./ "$ram_repo/" > "$copy_log" 2>&1
   copy_status="$?"
   set -e
 
@@ -225,7 +228,7 @@ run_macos_ramdisk() {
   append_summary
   append_summary '```text'
   printf 'exit_status=%s\n' "$copy_status" >> "$summary"
-  du -sh "$mount_point/repo" >> "$summary" 2>&1 || true
+  du -sh "$ram_repo" >> "$summary" 2>&1 || true
   tail -80 "$copy_log" >> "$summary" || true
   append_summary '```'
   append_summary
@@ -235,10 +238,29 @@ run_macos_ramdisk() {
     return 0
   fi
 
+  ram_lean_path="$(
+    lake env env \
+      | awk -F= '$1 == "LEAN_PATH" { print substr($0, index($0, "=") + 1) }' \
+      | awk -v from="$repo_root" -v to="$ram_repo" '{ gsub(from, to); print }'
+  )"
+  printf '%s\n' "$ram_lean_path" > "$out_dir/macos-ramdisk-lean-path.txt"
+
+  if [ -z "$ram_lean_path" ]; then
+    append_summary "### macOS RAM disk LEAN_PATH"
+    append_summary
+    append_summary '```text'
+    printf 'translated LEAN_PATH is empty\n' >> "$summary"
+    append_summary '```'
+    append_summary
+    echo "RAM disk LEAN_PATH translation failed; skipping RAM disk run" >&2
+    return 0
+  fi
+
   (
-    cd "$mount_point/repo"
+    cd "$ram_repo"
+    export LEAN_PATH="$ram_lean_path"
     time_command "macOS RAM disk bare Mathlib import run" "macos-ramdisk-run" \
-      lake env lean --run CI/MathlibImportNoop.lean
+      lean --run CI/MathlibImportNoop.lean
   )
 }
 
