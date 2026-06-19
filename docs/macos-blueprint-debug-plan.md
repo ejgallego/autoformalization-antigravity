@@ -190,6 +190,8 @@ The next trace should be narrower:
 2. On a tmate runner, attach after the final `lean` process starts instead of tracing the `lake` wrapper, then try to capture real macOS `mmap` flags with `dtruss -p <pid>` or a small DTrace script if GitHub's runner policy allows it.
 3. If mmap flags are normal private file mappings, reduce the repro outside this repo to `import Mathlib` plus the Lean 4.31.0/macOS runner context and report it upstream as a module-loading/page-in regression.
 
+The manual `.github/workflows/mathlib-import-macos-attach-trace.yml` workflow automates item 2: it builds the same cached Mathlib state, starts `lake env lean --run CI/MathlibImportNoop.lean`, waits for the final `lean` process, then attaches `dtruss -p` briefly while collecting `lsof`, `vmmap`, `sample`, and `/usr/bin/time -l` artifacts. It also has an optional `ssh_debug` input if the automated attach cannot capture enough detail.
+
 ## If macOS Is Slow
 
 1. Rerun the workflow once to rule out runner noise or cache warmup effects.

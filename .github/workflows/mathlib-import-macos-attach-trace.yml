@@ -1,0 +1,131 @@
+name: Mathlib Import macOS Attach Trace
+
+on:
+  workflow_dispatch:
+    inputs:
+      attach_seconds:
+        description: "How long to keep dtruss attached to the final Lean process."
+        required: true
+        default: "45"
+      ssh_debug:
+        description: "Open a short-lived SSH session before the attach trace."
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: mathlib-import-macos-attach-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-attach-trace:
+    name: Mathlib import macOS attach trace
+    runs-on: macos-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Runner context
+        shell: bash
+        run: |
+          set -euo pipefail
+          sw_vers
+          uname -a
+          sysctl -n machdep.cpu.brand_string || true
+          command -v dtruss || true
+          command -v vmmap || true
+          command -v sample || true
+
+      - name: Setup Lean
+        uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
+          build: false
+          test: false
+          lint: false
+          use-github-cache: false
+          use-mathlib-cache: false
+
+      - name: Lean context
+        shell: bash
+        run: |
+          set -euo pipefail
+          lean --version
+          lake --version
+
+      - name: Time Mathlib cache retrieval
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci-timed.sh "Mathlib cache retrieval" lake exe cache get
+
+      - name: Time Mathlib umbrella build
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci-timed.sh "Mathlib umbrella build" lake build Mathlib
+
+      - name: Lake environment context
+        shell: bash
+        run: |
+          set -euo pipefail
+          lake env lean --version
+          lake env env | sort | grep -E '^(LAKE|LEAN|PATH)=' || true
+
+      - name: Optional SSH debug session
+        id: tmate
+        if: ${{ inputs.ssh_debug }}
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true
+          detached: true
+
+      - name: Publish SSH debug info
+        if: ${{ inputs.ssh_debug }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "ssh_command=${{ steps.tmate.outputs.ssh-command }}"
+            echo "ssh_address=${{ steps.tmate.outputs.ssh-address }}"
+            echo "web_url=${{ steps.tmate.outputs.web-url }}"
+          } > tmate-info.txt
+
+      - name: Upload SSH debug info
+        if: ${{ inputs.ssh_debug }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmate-info-macos-attach
+          path: tmate-info.txt
+
+      - name: Hold SSH debug session
+        if: ${{ inputs.ssh_debug }}
+        shell: bash
+        run: sleep 600
+
+      - name: Attach trace bare Mathlib import run
+        shell: bash
+        env:
+          MACOS_ATTACH_SECONDS: ${{ inputs.attach_seconds }}
+        run: |
+          set -euo pipefail
+          bash scripts/macos-lean-attach-trace.sh \
+            attach-out \
+            lake env lean --run CI/MathlibImportNoop.lean
+
+      - name: Upload attach trace artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mathlib-import-macos-attach-trace
+          path: attach-out
+
+      - name: Attach trace summary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ -f attach-out/attach-summary.md ]; then
+            cat attach-out/attach-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
