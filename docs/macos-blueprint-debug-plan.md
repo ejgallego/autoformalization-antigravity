@@ -238,6 +238,22 @@ The manual `.github/workflows/mathlib-import-version-curve.yml` workflow tests t
 1. Lean/mathlib version pairs `v4.30.0` and `v4.31.0`, plus a `mathlib-master` row that reads mathlib's current `lean-toolchain`.
 2. An import-size curve from `Init` through narrow Mathlib modules, `Mathlib.Tactic`, and the full `Mathlib` umbrella.
 
+Run `27823586757` on 2026-06-19 completed the version/import curve:
+
+- Ubuntu stayed stable across all tested versions: full `import Mathlib` took 4.96 seconds on Lean/mathlib `v4.30.0`, 4.75 seconds on `v4.31.0`, and 4.85 seconds on current `mathlib-master`.
+- macOS was slow on both release tags: full `import Mathlib` took 171.91 seconds on `v4.30.0` and 190.07 seconds on `v4.31.0`.
+- `mathlib-master` used Lean `4.32.0-rc1` at commit `b4812ae53eea93439ad5dce5a5c26591c31cb697`; macOS improved to 114.18 seconds, but that is still about 23x slower than Ubuntu on the same row.
+- The smaller imports are already slower on macOS but do not explain the full gap: `Mathlib.Tactic` took 26-30 seconds on macOS versus 2.6-3.1 seconds on Ubuntu, while narrow Finset-related imports stayed in the 4-13 second range on macOS.
+- The import curve is not a strict cold-cache size curve because the workflow runs import probes sequentially. Earlier probes warm dependencies for later probes, so the final `Mathlib` result is especially notable: it remains 100s+ even after the smaller imports ran first.
+- macOS `Mathlib` resource counters were again VM-heavy: `v4.31.0` reported 190.07 real, 23.75 user, 42.91 sys, about 3.9 GB max RSS, 316k page reclaims, and 392k page faults. Ubuntu `v4.31.0` reported 4.75 real, 2.73 user, 2.02 sys, about 6.7 GB max RSS, 160k minor faults, and zero major faults.
+- One `v4.31.0` macOS nuance: `lake exe cache get` reported 26 cache misses and `lake build Mathlib` rebuilt Batteries/Mathlib artifacts in 77 seconds. This affected total job time, but not the standalone `lake env lean --run ImportCurve/Mathlib.lean` result, which was timed after the build completed.
+
+Updated conclusion after the version curve: the pathology exists in Lean 4.30 and 4.31 on macOS, and current Lean/mathlib master appears materially better but still far from Linux behavior. The next useful experiments are:
+
+1. Bisect between Lean `4.31.0` commit `68218e876d2a38b1985b8590fff244a83c321783` and Lean `4.32.0-rc1` commit `b4812ae53eea93439ad5dce5a5c26591c31cb697`, using matching mathlib commits when available, to find the change that reduced macOS full-import time from about 190 seconds to about 114 seconds.
+2. Generate a top-level `Mathlib.lean` prefix/import bisection on macOS, so we can tell whether the 100s+ jump comes from a specific imported area or scales with the aggregate number of mapped `.olean`/`.ir` artifacts and persistent extensions.
+3. For the heaviest prefix found by that bisection, repeat the attach trace and resource counters to compare page faults, `PAGE_IN_FILE`, mapped region count, and finalization samples against the full umbrella import.
+
 ## If macOS Is Slow
 
 1. Rerun the workflow once to rule out runner noise or cache warmup effects.
