@@ -233,6 +233,11 @@ Runs `27820837960`, `27821727814`, and `27822430217` added the cache/prewarm dat
 
 Updated conclusion: this is not explained by cold physical disk I/O or by Lake process overhead alone. Linux cold-cache behavior is much cheaper and explicit prewarm restores Linux performance, while macOS remains slow even after explicit prewarm and when the artifacts are served from a RAM-backed filesystem. The RAM-disk run adds memory pressure, so it is not a clean lower-bound benchmark, but it is strong evidence that the abnormal cost is in macOS VM/file-mapping/page-fault behavior or Lean's mapped-import access pattern on macOS.
 
+The manual `.github/workflows/mathlib-import-version-curve.yml` workflow tests two additional axes:
+
+1. Lean/mathlib version pairs `v4.30.0` and `v4.31.0`, plus a `mathlib-master` row that reads mathlib's current `lean-toolchain`.
+2. An import-size curve from `Init` through narrow Mathlib modules, `Mathlib.Tactic`, and the full `Mathlib` umbrella.
+
 ## If macOS Is Slow
 
 1. Rerun the workflow once to rule out runner noise or cache warmup effects.

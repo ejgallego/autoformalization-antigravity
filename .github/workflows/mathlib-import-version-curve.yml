@@ -1,0 +1,123 @@
+name: Mathlib Import Version Curve
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: mathlib-import-version-curve-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  version-curve:
+    name: Import curve ${{ matrix.label }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: v4.30.0
+            toolchain: leanprover/lean4:v4.30.0
+            mathlib_ref: v4.30.0
+          - os: macos-latest
+            label: v4.30.0
+            toolchain: leanprover/lean4:v4.30.0
+            mathlib_ref: v4.30.0
+          - os: ubuntu-latest
+            label: v4.31.0
+            toolchain: leanprover/lean4:v4.31.0
+            mathlib_ref: v4.31.0
+          - os: macos-latest
+            label: v4.31.0
+            toolchain: leanprover/lean4:v4.31.0
+            mathlib_ref: v4.31.0
+          - os: ubuntu-latest
+            label: mathlib-master
+            toolchain: mathlib-master
+            mathlib_ref: master
+          - os: macos-latest
+            label: mathlib-master
+            toolchain: mathlib-master
+            mathlib_ref: master
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Lean toolchain
+        shell: bash
+        env:
+          TOOLCHAIN: ${{ matrix.toolchain }}
+          MATHLIB_REF: ${{ matrix.mathlib_ref }}
+        run: |
+          set -euo pipefail
+          : "${TOOLCHAIN:?}"
+          : "${MATHLIB_REF:?}"
+          if [ "$TOOLCHAIN" = "mathlib-master" ]; then
+            curl -fsSL https://raw.githubusercontent.com/leanprover-community/mathlib4/master/lean-toolchain > lean-toolchain
+          else
+            printf '%s\n' "$TOOLCHAIN" > lean-toolchain
+          fi
+          toolchain="$(cat lean-toolchain)"
+          {
+            echo "LEAN_TOOLCHAIN=$toolchain"
+            echo "LEAN_VERSION_TAG=${toolchain##*:}"
+            echo "MATHLIB_REF=$MATHLIB_REF"
+          } >> "$GITHUB_ENV"
+          cat lean-toolchain
+
+      - name: Runner context
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          case "$(uname -s)" in
+            Darwin)
+              sw_vers
+              sysctl -n machdep.cpu.brand_string || true
+              ;;
+            Linux)
+              cat /etc/os-release || true
+              nproc || true
+              grep -m 1 'model name' /proc/cpuinfo || true
+              ;;
+          esac
+
+      - name: Setup Lean
+        uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
+          build: false
+          test: false
+          lint: false
+          use-github-cache: false
+          use-mathlib-cache: false
+
+      - name: Lean context
+        shell: bash
+        run: |
+          set -euo pipefail
+          lean --version
+          lake --version
+
+      - name: Run import version curve
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/mathlib-import-version-curve.sh "version-curve-out" "${{ matrix.label }}"
+
+      - name: Upload version curve artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mathlib-import-version-curve-${{ matrix.os }}-${{ matrix.label }}
+          path: version-curve-out
+
+      - name: Version curve summary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ -f version-curve-out/version-curve-summary.md ]; then
+            cat version-curve-out/version-curve-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
