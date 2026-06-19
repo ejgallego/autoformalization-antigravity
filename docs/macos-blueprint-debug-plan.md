@@ -162,6 +162,26 @@ The main questions for this trace are:
 2. Is macOS issuing unexpected `fsync`/`msync`/fcntl calls or unusual mmap behavior?
 3. Does `fs_usage` show page-in or metadata traffic that would explain the large wall-clock/user-time gap?
 
+Run `27797334367` on 2026-06-19 answered the first two questions and strongly points at the third:
+
+- Both legs used Lean 4.31.0 and the same `CI/MathlibImportNoop.lean` command.
+- The standard `lake build Mathlib` step was slower on macOS than Ubuntu, but still far below the traced import time: Ubuntu `real 19.53`, macOS `real 47.72`.
+- The traced import was Ubuntu `real 49.38` under `strace`, versus macOS `real 155.09` under `fs_usage`.
+- Linux's final Lean process had the same order of magnitude of operations as macOS: about 662k `statx`, 42.3k `openat`, 42.3k `read`, 42.3k `mmap`, and 42.3k `close`.
+- macOS's final Lean process had about 668k `stat64`, 42.4k `open`, 42.5k `read`, 42.4k `mmap`, 42.3k `fstat64`, and 42.3k `close`.
+- Neither trace showed `fsync` or `msync` traffic. Linux mmap lines are overwhelmingly `MAP_PRIVATE`; the macOS `fs_usage` output does not expose mmap flags.
+- The standout macOS event is `PAGE_IN_FILE`: about 551k events in the final Lean process, with summed `fs_usage` duration around 118 seconds. The next largest macOS Lean event sums were about 9.5 seconds in `read` and 5.7 seconds in `mmap`.
+- The macOS `dtruss -f` probe did not capture the interesting child process on the GitHub runner. It only saw the wrapper process fork and a few `getattrlist` calls, so it is not useful evidence about mmap flags yet.
+- Periodic `lsof`/`vmmap`/`sample` again caught the final `lean` process in `Lean_importModules` / `Lean_finalizeImport`, with about 10,003 open files and about 7.4 GB of mapped files across roughly 42k regions.
+
+Working hypothesis after this run: macOS is paying a large file-backed page-fault cost while Lean finalizes the full Mathlib import closure from many private mapped `.olean`/`.ir` artifacts. The syscall volume itself is comparable to Linux, and there is no evidence yet for accidental sync calls.
+
+The next trace should be narrower:
+
+1. Use the added low-overhead page-fault counters around the import (`/usr/bin/time -l` on macOS, `/usr/bin/time -v` on Linux) to compare major faults, minor faults, page reclaims, and pageins without rerunning broad tracing.
+2. On a tmate runner, attach after the final `lean` process starts instead of tracing the `lake` wrapper, then try to capture real macOS `mmap` flags with `dtruss -p <pid>` or a small DTrace script if GitHub's runner policy allows it.
+3. If mmap flags are normal private file mappings, reduce the repro outside this repo to `import Mathlib` plus the Lean 4.31.0/macOS runner context and report it upstream as a module-loading/page-in regression.
+
 ## If macOS Is Slow
 
 1. Rerun the workflow once to rule out runner noise or cache warmup effects.

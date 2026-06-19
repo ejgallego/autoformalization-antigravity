@@ -62,9 +62,52 @@ summarize_strace() {
     ' "$raw" | sort -nr
 
     echo
+    echo "### strace execve lines"
+    echo
+    awk '/execve/ { print; if (++n == 80) exit }' "$raw" || true
+
+    echo
+    echo "### strace dominant pid/syscall counts"
+    echo
+    awk '
+      $1 ~ /^[0-9]+$/ {
+        sys = $3
+        sub(/\(.*/, "", sys)
+        if (sys ~ /^[A-Za-z0-9_]+$/) count[$1, sys]++
+      }
+      END {
+        for (key in count) {
+          split(key, part, SUBSEP)
+          print count[key], part[1], part[2]
+        }
+      }
+    ' "$raw" | sort -nr | sed -n '1,80p'
+
+    echo
+    echo "### strace dominant pid/syscall durations"
+    echo
+    awk '
+      $1 ~ /^[0-9]+$/ && $NF ~ /^<[0-9.]+>$/ {
+        sys = $3
+        sub(/\(.*/, "", sys)
+        if (sys !~ /^[A-Za-z0-9_]+$/) next
+        dur = $NF
+        gsub(/[<>]/, "", dur)
+        total[$1, sys] += dur + 0
+        count[$1, sys]++
+      }
+      END {
+        for (key in total) {
+          split(key, part, SUBSEP)
+          printf "%.6f %d %s %s\n", total[key], count[key], part[1], part[2]
+        }
+      }
+    ' "$raw" | sort -nr | sed -n '1,80p'
+
+    echo
     echo "### strace first mmap/sync lines"
     echo
-    grep -E 'mmap|msync|fsync|fdatasync' "$raw" | head -80 || true
+    awk '/mmap|msync|fsync|fdatasync/ { print; if (++n == 80) exit }' "$raw" || true
 
     echo
     echo "### strace top traced Lean artifact paths"
@@ -72,7 +115,7 @@ summarize_strace() {
     grep -Eo '/[^" <>]+\.(olean|ir)(\.[^" <>]+)?' "$raw" \
       | sed 's#^.*/\.lake/packages/mathlib/.lake/build/lib/lean/##' \
       | sed 's#^.*/\.lake/build/lib/lean/##' \
-      | sort | uniq -c | sort -nr | head -80 || true
+      | sort | uniq -c | sort -nr | sed -n '1,80p' || true
   } > "$out"
 }
 
@@ -116,9 +159,46 @@ summarize_text_trace() {
     ' "$raw" | sort -nr
 
     echo
+    echo "### $title dominant process/event counts"
+    echo
+    awk '
+      $NF ~ /^[A-Za-z0-9_.\/-]+[.][0-9]+$/ {
+        proc = $NF
+        sub(/[.][0-9]+$/, "", proc)
+        event = $2
+        count[proc, event]++
+      }
+      END {
+        for (key in count) {
+          split(key, part, SUBSEP)
+          print count[key], part[1], part[2]
+        }
+      }
+    ' "$raw" | sort -nr | sed -n '1,80p'
+
+    echo
+    echo "### $title dominant process/event durations"
+    echo
+    awk '
+      $NF ~ /^[A-Za-z0-9_.\/-]+[.][0-9]+$/ && $(NF - 1) ~ /^[0-9.]+$/ {
+        proc = $NF
+        sub(/[.][0-9]+$/, "", proc)
+        event = $2
+        total[proc, event] += $(NF - 1) + 0
+        count[proc, event]++
+      }
+      END {
+        for (key in total) {
+          split(key, part, SUBSEP)
+          printf "%.6f %d %s %s\n", total[key], count[key], part[1], part[2]
+        }
+      }
+    ' "$raw" | sort -nr | sed -n '1,80p'
+
+    echo
     echo "### $title first mmap/sync/page-in lines"
     echo
-    grep -E 'mmap|msync|fsync|PAGE_IN|F_PAGEIN|fcntl' "$raw" | head -120 || true
+    awk '/mmap|msync|fsync|PAGE_IN|F_PAGEIN|fcntl/ { print; if (++n == 120) exit }' "$raw" || true
 
     echo
     echo "### $title top traced Lean artifact paths"
@@ -126,7 +206,7 @@ summarize_text_trace() {
     grep -Eo '/[^" <>]+\.(olean|ir)(\.[^" <>]+)?' "$raw" \
       | sed 's#^.*/\.lake/packages/mathlib/.lake/build/lib/lean/##' \
       | sed 's#^.*/\.lake/build/lib/lean/##' \
-      | sort | uniq -c | sort -nr | head -80 || true
+      | sort | uniq -c | sort -nr | sed -n '1,80p' || true
   } > "$out"
 }
 
@@ -143,7 +223,7 @@ run_linux_trace() {
   append_summary
 
   set +e
-  /usr/bin/time -p \
+  /usr/bin/time -v \
     strace -f -tt -T -yy -s 256 -o "$raw" \
       -e trace=file,mmap,munmap,mprotect,madvise,msync,fsync,fdatasync,fcntl,close,read,pread64 \
       "$@" > "$out_dir/command.stdout" 2> "$time_log"
@@ -219,7 +299,7 @@ run_macos_fs_usage_trace() {
   sampler_pid="$!"
 
   set +e
-  /usr/bin/time -p "$@" > "$out_dir/command.stdout" 2> "$time_log"
+  /usr/bin/time -l "$@" > "$out_dir/command.stdout" 2> "$time_log"
   status="$?"
   set -e
 
