@@ -10,7 +10,7 @@ on:
       bytes_per_file:
         description: Bytes in each fixture file, must be a page-size multiple
         required: false
-        default: "65536"
+        default: "262144"
       maps_per_file:
         description: Number of MAP_PRIVATE mappings per file
         required: false

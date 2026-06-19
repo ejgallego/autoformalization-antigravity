@@ -268,9 +268,25 @@ The stopping rule for local investigation is:
 2. If the prefix bisection shows broad scaling rather than one narrow culprit import group, stop Lean-version archaeology and package the repro for upstream.
 3. If one prefix group causes most of the jump, rerun only that group with the existing attach trace workflow before filing upstream.
 
-The manual `.github/workflows/mmap-pattern-synthetic.yml` workflow is an OS-level control. It builds `scripts/mmap-pattern-probe.c`, prepares a synthetic file fixture, then maps many small files with `MAP_PRIVATE` and touches pages in sequential and permuted orders. The default fixture reaches 10,000 files and 4 mappings per file, giving a 40,000-map case close to the Lean trace's mmap count while keeping the fixture size around 640 MiB. Its matrix covers Ubuntu, `macos-latest`, and `macos-26`.
+The manual `.github/workflows/mmap-pattern-synthetic.yml` workflow is an OS-level control. It builds `scripts/mmap-pattern-probe.c`, prepares a synthetic file fixture, then maps many small files with `MAP_PRIVATE` and touches pages in sequential and permuted orders. The default fixture reaches 10,000 files, 256 KiB per file, and 4 mappings per file, giving a 40,000-map / 2.5 GiB fixture close to the Lean trace's mmap count and closer to its page-fault scale. Its matrix covers Ubuntu, `macos-latest`, and `macos-26`.
 
 The synthetic test answers a narrower question: does macOS itself scale badly for a Lean-like "many file-backed private mappings, then touch pages" pattern, even without Lean's deserialization and environment finalization work? If it scales normally, the remaining suspect is Lean's mapped-object access/finalization pattern. If it scales badly in the same direction as Lean, the upstream report should include the synthetic C repro as OS-level supporting evidence.
+
+Run `27825733871` completed the prefix bisection:
+
+- Ubuntu full prefix, equivalent to `import Mathlib`, took 3.92 seconds.
+- `macos-latest` was macOS `15.7.7`; the full prefix took 120.00 seconds with 420,904 page faults and no block input operations.
+- `macos-26` was macOS `26.4`; the full prefix took 128.53 seconds with 463,274 page faults and no block input operations. This rules out GitHub's macOS 26 image as a practical fix.
+- The estimated 60 second crossing differed by runner: `macos-latest` crossed near import 2562, `Mathlib.CategoryTheory.Category.GaloisConnection`, while `macos-26` crossed near import 1824, `Mathlib.Analysis.Calculus.LogDeriv`.
+- Because those crossing points differ and adjacent timings are noisy, this is not strong evidence for one stable culprit module. It is better evidence for broad cumulative scaling plus runner/page-cache noise across the ordered Mathlib import list.
+
+Runs `27825733864` and `27825831532` completed the synthetic mmap control:
+
+- The lighter 40,000-map / 640 MiB fixture completed quickly everywhere: the cold sequential 10,000-file probe took about 0.39 seconds on Ubuntu, 1.42 seconds on macOS 15, and 2.54 seconds on macOS 26.
+- The stronger 40,000-map / 2.5 GiB fixture also stayed far below Lean's 100s behavior: the cold sequential 10,000-file probe took 0.71 seconds on Ubuntu, 9.60 seconds on macOS 15, and 7.21 seconds on macOS 26.
+- The stronger macOS probes did show the same direction of VM cost, with about 75k-78k page faults and hundreds of thousands of page reclaims, but the wall-clock cost remained single-digit seconds rather than 120+ seconds.
+
+Updated conclusion after the prefix and synthetic runs: plain "many file-backed private mmap regions" is not sufficient to reproduce Lean's slowdown. macOS is slower for the synthetic pattern, but Lean's deserialization/finalization access pattern, object graph, or persistent environment extension work is needed to get from single-digit seconds to 100s.
 
 Known-workaround check:
 

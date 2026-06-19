@@ -18,7 +18,7 @@ printf 'probe\tfiles\tbytes_per_file\tmaps_per_file\tpasses\tpattern\telapsed_se
 work_dir="${MMAP_PATTERN_WORK_DIR:-${RUNNER_TEMP:-/tmp}/mmap-pattern-work}"
 bin="$out_dir/mmap-pattern-probe"
 files="${MMAP_PATTERN_FILES:-10000}"
-bytes_per_file="${MMAP_PATTERN_BYTES_PER_FILE:-65536}"
+bytes_per_file="${MMAP_PATTERN_BYTES_PER_FILE:-262144}"
 maps_per_file="${MMAP_PATTERN_MAPS_PER_FILE:-4}"
 passes="${MMAP_PATTERN_PASSES:-1}"
 counts="${MMAP_PATTERN_COUNTS:-1000 2500 5000 10000}"
