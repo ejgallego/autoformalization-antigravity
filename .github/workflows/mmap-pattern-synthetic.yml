@@ -1,0 +1,80 @@
+name: Synthetic mmap Pattern
+
+on:
+  workflow_dispatch:
+    inputs:
+      files:
+        description: Maximum number of fixture files
+        required: false
+        default: "10000"
+      bytes_per_file:
+        description: Bytes in each fixture file, must be a page-size multiple
+        required: false
+        default: "65536"
+      maps_per_file:
+        description: Number of MAP_PRIVATE mappings per file
+        required: false
+        default: "4"
+
+concurrency:
+  group: mmap-pattern-synthetic-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mmap-pattern:
+    name: mmap pattern ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Runner context
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          case "$(uname -s)" in
+            Darwin)
+              sw_vers
+              sysctl -n machdep.cpu.brand_string || true
+              ;;
+            Linux)
+              cat /etc/os-release || true
+              nproc || true
+              grep -m 1 'model name' /proc/cpuinfo || true
+              ;;
+          esac
+
+      - name: Run synthetic mmap pattern
+        shell: bash
+        env:
+          MMAP_PATTERN_FILES: ${{ inputs.files }}
+          MMAP_PATTERN_BYTES_PER_FILE: ${{ inputs.bytes_per_file }}
+          MMAP_PATTERN_MAPS_PER_FILE: ${{ inputs.maps_per_file }}
+        run: |
+          set -euo pipefail
+          bash scripts/mmap-pattern-ci.sh "mmap-pattern-out"
+
+      - name: Upload mmap pattern artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmap-pattern-synthetic-${{ matrix.os }}
+          path: mmap-pattern-out
+
+      - name: mmap pattern summary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ -f mmap-pattern-out/mmap-pattern-summary.md ]; then
+            cat mmap-pattern-out/mmap-pattern-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi

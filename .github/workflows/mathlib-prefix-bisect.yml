@@ -1,0 +1,119 @@
+name: Mathlib Prefix Bisect
+
+on:
+  workflow_dispatch:
+    inputs:
+      threshold_seconds:
+        description: Seconds used as the slow-prefix threshold
+        required: false
+        default: "60"
+      max_bisect_steps:
+        description: Maximum adaptive bisection probes after fixed prefix probes
+        required: false
+        default: "14"
+
+concurrency:
+  group: mathlib-prefix-bisect-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prefix-bisect:
+    name: Prefix bisect ${{ matrix.os }} ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: v4.31.0
+            toolchain: leanprover/lean4:v4.31.0
+            mathlib_ref: v4.31.0
+          - os: macos-latest
+            label: v4.31.0
+            toolchain: leanprover/lean4:v4.31.0
+            mathlib_ref: v4.31.0
+          - os: macos-26
+            label: v4.31.0
+            toolchain: leanprover/lean4:v4.31.0
+            mathlib_ref: v4.31.0
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Lean toolchain
+        shell: bash
+        env:
+          TOOLCHAIN: ${{ matrix.toolchain }}
+          MATHLIB_REF: ${{ matrix.mathlib_ref }}
+        run: |
+          set -euo pipefail
+          : "${TOOLCHAIN:?}"
+          : "${MATHLIB_REF:?}"
+          printf '%s\n' "$TOOLCHAIN" > lean-toolchain
+          toolchain="$(cat lean-toolchain)"
+          {
+            echo "LEAN_TOOLCHAIN=$toolchain"
+            echo "LEAN_VERSION_TAG=${toolchain##*:}"
+            echo "MATHLIB_REF=$MATHLIB_REF"
+          } >> "$GITHUB_ENV"
+          cat lean-toolchain
+
+      - name: Runner context
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          case "$(uname -s)" in
+            Darwin)
+              sw_vers
+              sysctl -n machdep.cpu.brand_string || true
+              ;;
+            Linux)
+              cat /etc/os-release || true
+              nproc || true
+              grep -m 1 'model name' /proc/cpuinfo || true
+              ;;
+          esac
+
+      - name: Setup Lean
+        uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
+          build: false
+          test: false
+          lint: false
+          use-github-cache: false
+          use-mathlib-cache: false
+
+      - name: Lean context
+        shell: bash
+        run: |
+          set -euo pipefail
+          lean --version
+          lake --version
+
+      - name: Run Mathlib prefix bisect
+        shell: bash
+        env:
+          PREFIX_THRESHOLD_SECONDS: ${{ inputs.threshold_seconds }}
+          PREFIX_MAX_BISECT_STEPS: ${{ inputs.max_bisect_steps }}
+        run: |
+          set -euo pipefail
+          bash scripts/mathlib-prefix-bisect.sh "prefix-bisect-out" "${{ matrix.os }}-${{ matrix.label }}"
+
+      - name: Upload prefix bisect artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mathlib-prefix-bisect-${{ matrix.os }}-${{ matrix.label }}
+          path: prefix-bisect-out
+
+      - name: Prefix bisect summary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ -f prefix-bisect-out/prefix-bisect-summary.md ]; then
+            cat prefix-bisect-out/prefix-bisect-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi

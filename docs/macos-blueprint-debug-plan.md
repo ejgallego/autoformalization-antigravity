@@ -260,6 +260,18 @@ Updated conclusion after the version curve: the pathology exists at least as far
 2. For the heaviest prefix found by that bisection, repeat the attach trace and resource counters to compare page faults, `PAGE_IN_FILE`, mapped region count, and finalization samples against the full umbrella import.
 3. Only if a later repeated version matrix shows a stable Lean-version step change, bisect that narrower version interval with matching mathlib commits.
 
+The manual `.github/workflows/mathlib-prefix-bisect.yml` workflow implements the first item in a bounded way. It creates an isolated Lean/mathlib `v4.31.0` project, fetches the Mathlib cache, builds the umbrella target, extracts the ordered imports from Mathlib's own `Mathlib.lean`, then runs fixed prefix probes plus an adaptive threshold bisection. The matrix includes Ubuntu, `macos-latest`, and explicit `macos-26`, so this also tests whether GitHub's newer macOS image changes the full-import behavior.
+
+The stopping rule for local investigation is:
+
+1. If `macos-26` is still in the 100s range for full `import Mathlib`, stop OS-version probing.
+2. If the prefix bisection shows broad scaling rather than one narrow culprit import group, stop Lean-version archaeology and package the repro for upstream.
+3. If one prefix group causes most of the jump, rerun only that group with the existing attach trace workflow before filing upstream.
+
+The manual `.github/workflows/mmap-pattern-synthetic.yml` workflow is an OS-level control. It builds `scripts/mmap-pattern-probe.c`, prepares a synthetic file fixture, then maps many small files with `MAP_PRIVATE` and touches pages in sequential and permuted orders. The default fixture reaches 10,000 files and 4 mappings per file, giving a 40,000-map case close to the Lean trace's mmap count while keeping the fixture size around 640 MiB. Its matrix covers Ubuntu, `macos-latest`, and `macos-26`.
+
+The synthetic test answers a narrower question: does macOS itself scale badly for a Lean-like "many file-backed private mappings, then touch pages" pattern, even without Lean's deserialization and environment finalization work? If it scales normally, the remaining suspect is Lean's mapped-object access/finalization pattern. If it scales badly in the same direction as Lean, the upstream report should include the synthetic C repro as OS-level supporting evidence.
+
 Known-workaround check:
 
 - `leanprover/lean-action` does not contain a macOS-specific import workaround. It installs elan, optionally restores `.lake` with an OS/architecture/toolchain/manifest cache key, optionally runs `lake exe cache get`, then runs `lake build`.
