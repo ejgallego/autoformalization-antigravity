@@ -200,6 +200,22 @@ Run `27798445171` confirmed that automated attach catches the right phase, but `
 - The sampled stack was in `Lean_importModules` / `Lean_finalizeImport`, so the attach window covered module loading and finalization.
 - The `dtruss -p` output only reported DTrace dynamic variable drops and no syscall lines, so the follow-up workflow now uses a smaller raw DTrace script instead of `dtruss`.
 
+Run `27798802809` showed that the smaller DTrace probe works:
+
+- The command took `124.92 real`, with max RSS about 3.7 GB, 291,559 page reclaims, and 482,390 page faults.
+- DTrace captured 35,756 `mmap` entries and no `mmap_extended` entries during the 45 second attach window.
+- The dominant mmap flags were ordinary Darwin file mappings: 31,585 entries with `0x40002` (`MAP_UNIX03 | MAP_PRIVATE`) and 3,337 entries with `0x40001` (`MAP_UNIX03 | MAP_SHARED`). The main anonymous mapping flag was `0x41002` (`MAP_UNIX03 | MAP_ANON | MAP_PRIVATE`), with 686 entries.
+- The first DTrace probe also saw 183 `fsync` entries, contradicting the earlier `fs_usage` summary and requiring a return-time check.
+
+Run `27799098281` added sync return timings:
+
+- The command took `153.68 real`, with max RSS about 3.5 GB, 287,856 page reclaims, and 490,193 page faults.
+- DTrace captured 37,065 `mmap` entries and no `mmap_extended` entries.
+- DTrace captured 432 `fsync` calls and 1 `msync` call, all returning with errno 0.
+- Total sync elapsed time was about 66 ms, and the slowest sync call was about 10 ms, so sync calls are not a material cause of the 100s+ wall time.
+
+Current conclusion: macOS uses normal private/shared file mappings with the Darwin `MAP_UNIX03` bit, and sync calls are cheap. The remaining abnormal signal is still file-backed paging: hundreds of thousands of page faults/page reclaims and earlier `fs_usage` `PAGE_IN_FILE` duration while finalizing the full Mathlib import closure.
+
 ## If macOS Is Slow
 
 1. Rerun the workflow once to rule out runner noise or cache warmup effects.
