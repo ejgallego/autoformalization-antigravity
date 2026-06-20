@@ -223,9 +223,15 @@ static int probe_files(const char *dir,
     double end = now_seconds();
 
     printf("mode=probe files=%" PRIu64 " bytes_per_file=%zu maps_per_file=%" PRIu64
-           " total_maps=%" PRIu64 " pages_per_map=%" PRIu64 " passes=%" PRIu64
-           " pattern=%s map_seconds=%.6f touch_seconds=%.6f total_seconds=%.6f checksum=%" PRIu64 "\n",
-           files, bytes_per_file, maps_per_file, total_maps, pages_per_map, passes, pattern,
+           " total_maps=%" PRIu64 " page_size=%zu pages_per_map=%" PRIu64
+           " unique_bytes=%" PRIu64 " mapped_bytes=%" PRIu64 " touched_page_slots=%" PRIu64
+           " passes=%" PRIu64 " pattern=%s map_seconds=%.6f touch_seconds=%.6f"
+           " total_seconds=%.6f checksum=%" PRIu64 "\n",
+           files, bytes_per_file, maps_per_file, total_maps, page_size, pages_per_map,
+           files * (uint64_t)bytes_per_file,
+           total_maps * (uint64_t)bytes_per_file,
+           total_slots * passes,
+           passes, pattern,
            map_end - map_start, touch_end - touch_start, end - map_start, checksum);
 
     free(maps);

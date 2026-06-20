@@ -268,7 +268,16 @@ The stopping rule for local investigation is:
 2. If the prefix bisection shows broad scaling rather than one narrow culprit import group, stop Lean-version archaeology and package the repro for upstream.
 3. If one prefix group causes most of the jump, rerun only that group with the existing attach trace workflow before filing upstream.
 
-The manual `.github/workflows/mmap-pattern-synthetic.yml` workflow is an OS-level control. It builds `scripts/mmap-pattern-probe.c`, prepares a synthetic file fixture, then maps many small files with `MAP_PRIVATE` and touches pages in sequential and permuted orders. The default fixture reaches 10,000 files, 256 KiB per file, and 4 mappings per file, giving a 40,000-map / 2.5 GiB fixture close to the Lean trace's mmap count and closer to its page-fault scale. Its matrix covers Ubuntu, `macos-latest`, and `macos-26`.
+The manual `.github/workflows/mmap-pattern-synthetic.yml` workflow is an OS-level control. It builds `scripts/mmap-pattern-probe.c`, prepares a synthetic file fixture, then maps many small files with `MAP_PRIVATE` and touches pages in permuted and sequential orders. The default fixture is now sized around the relevant Lean footprints rather than only the syscall count:
+
+- 20,000 files.
+- 192 KiB per file.
+- 2 mappings per file, for 40,000 total mappings.
+- About 3.75 GB of unique file bytes.
+- About 7.5 GB of mapped bytes, close to the 7.4 GB mapped-file footprint observed in `vmmap`.
+- Two full page-touch passes, with the scattered/permuted pass first.
+
+The workflow records page size, unique bytes, mapped bytes, pages per map, and touched page slots in the summary so the synthetic run can be compared directly with the Lean import resource counters. Its matrix covers Ubuntu, `macos-latest`, and `macos-26`.
 
 The synthetic test answers a narrower question: does macOS itself scale badly for a Lean-like "many file-backed private mappings, then touch pages" pattern, even without Lean's deserialization and environment finalization work? If it scales normally, the remaining suspect is Lean's mapped-object access/finalization pattern. If it scales badly in the same direction as Lean, the upstream report should include the synthetic C repro as OS-level supporting evidence.
 
@@ -287,6 +296,15 @@ Runs `27825733864` and `27825831532` completed the synthetic mmap control:
 - The stronger macOS probes did show the same direction of VM cost, with about 75k-78k page faults and hundreds of thousands of page reclaims, but the wall-clock cost remained single-digit seconds rather than 120+ seconds.
 
 Updated conclusion after the prefix and synthetic runs: plain "many file-backed private mmap regions" is not sufficient to reproduce Lean's slowdown. macOS is slower for the synthetic pattern, but Lean's deserialization/finalization access pattern, object graph, or persistent environment extension work is needed to get from single-digit seconds to 100s.
+
+The next synthetic run should use the updated footprint-sized defaults. The main comparison is no longer just "how many mmaps", but whether macOS scales badly with a Lean-sized mapped-file working set under a scattered page-touch order. If it still stays far below Lean, the remaining macOS-specific question becomes whether Lean's actual access pattern causes repeated page reclaim/refault behavior while it deserializes and finalizes the import graph.
+
+The manual `.github/workflows/mathlib-import-memory-pressure.yml` workflow collects that next signal around the real `lake env lean --run CI/MathlibImportNoop.lean` command. It wraps the import with low-overhead before/after snapshots and during-run streams:
+
+- macOS: `/usr/bin/time -l`, `vm_stat`, `memory_pressure`, sorted `sysctl vm`, and periodic `ps` snapshots of `lake`/`lean`.
+- Linux: `/usr/bin/time -v`, `/proc/meminfo`, `/proc/vmstat`, `vmstat -s`, `vmstat 1`, and periodic process snapshots.
+
+This is meant to test whether "page reclaim" behavior is the important difference: Linux may be faulting or reusing pages in a way that avoids repeated expensive file-backed page-in work, while macOS may be cycling through file-backed VM objects during Lean's import finalization. The result to compare is the delta in page faults, page reclaims/pageins or reclaim-like counters, RSS, and process lifetime, not only the final wall-clock time.
 
 Known-workaround check:
 

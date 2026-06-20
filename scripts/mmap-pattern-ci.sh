@@ -17,13 +17,14 @@ printf 'probe\tfiles\tbytes_per_file\tmaps_per_file\tpasses\tpattern\telapsed_se
 
 work_dir="${MMAP_PATTERN_WORK_DIR:-${RUNNER_TEMP:-/tmp}/mmap-pattern-work}"
 bin="$out_dir/mmap-pattern-probe"
-files="${MMAP_PATTERN_FILES:-10000}"
-bytes_per_file="${MMAP_PATTERN_BYTES_PER_FILE:-262144}"
-maps_per_file="${MMAP_PATTERN_MAPS_PER_FILE:-4}"
-passes="${MMAP_PATTERN_PASSES:-1}"
-counts="${MMAP_PATTERN_COUNTS:-1000 2500 5000 10000}"
-patterns="${MMAP_PATTERN_PATTERNS:-sequential permuted}"
+files="${MMAP_PATTERN_FILES:-20000}"
+bytes_per_file="${MMAP_PATTERN_BYTES_PER_FILE:-196608}"
+maps_per_file="${MMAP_PATTERN_MAPS_PER_FILE:-2}"
+passes="${MMAP_PATTERN_PASSES:-2}"
+counts="${MMAP_PATTERN_COUNTS:-5000 10000 20000}"
+patterns="${MMAP_PATTERN_PATTERNS:-permuted sequential}"
 overall_status=0
+page_size="$(getconf PAGESIZE)"
 
 append_summary() {
   printf '%s\n' "$*" >> "$summary"
@@ -95,6 +96,12 @@ printf 'maps_per_file=%s\n' "$maps_per_file" >> "$summary"
 printf 'passes=%s\n' "$passes" >> "$summary"
 printf 'counts=%s\n' "$counts" >> "$summary"
 printf 'patterns=%s\n' "$patterns" >> "$summary"
+printf 'page_size=%s\n' "$page_size" >> "$summary"
+printf 'max_total_maps=%s\n' "$((files * maps_per_file))" >> "$summary"
+printf 'max_unique_bytes=%s\n' "$((files * bytes_per_file))" >> "$summary"
+printf 'max_mapped_bytes=%s\n' "$((files * maps_per_file * bytes_per_file))" >> "$summary"
+printf 'max_pages_per_map=%s\n' "$((bytes_per_file / page_size))" >> "$summary"
+printf 'max_touched_page_slots=%s\n' "$((files * maps_per_file * (bytes_per_file / page_size) * passes))" >> "$summary"
 printf 'uname=%s\n' "$(uname -a)" >> "$summary"
 case "$(uname -s)" in
   Darwin)

@@ -1,0 +1,94 @@
+name: Mathlib Import Memory Pressure
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: mathlib-import-memory-pressure-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  memory-pressure:
+    name: Memory pressure ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Runner context
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          case "$(uname -s)" in
+            Darwin)
+              sw_vers
+              sysctl -n machdep.cpu.brand_string || true
+              df -h /
+              ;;
+            Linux)
+              cat /etc/os-release || true
+              nproc || true
+              grep -m 1 'model name' /proc/cpuinfo || true
+              df -h /
+              ;;
+          esac
+
+      - name: Setup Lean
+        uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
+          build: false
+          test: false
+          lint: false
+          use-github-cache: false
+          use-mathlib-cache: false
+
+      - name: Lean context
+        shell: bash
+        run: |
+          set -euo pipefail
+          lean --version
+          lake --version
+
+      - name: Time Mathlib cache retrieval
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci-timed.sh "Mathlib cache retrieval" lake exe cache get
+
+      - name: Time Mathlib umbrella build
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci-timed.sh "Mathlib umbrella build" lake build Mathlib
+
+      - name: Run memory-pressure trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/mathlib-import-memory-pressure.sh "memory-pressure-out"
+
+      - name: Upload memory-pressure artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mathlib-import-memory-pressure-${{ matrix.os }}
+          path: memory-pressure-out
+
+      - name: Memory-pressure summary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ -f memory-pressure-out/memory-pressure-summary.md ]; then
+            cat memory-pressure-out/memory-pressure-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
