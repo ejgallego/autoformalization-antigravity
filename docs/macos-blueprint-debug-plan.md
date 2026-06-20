@@ -283,6 +283,23 @@ The synthetic test answers a narrower question: does macOS itself scale badly fo
 
 The synthetic workflow now also runs an import-like `walk` probe before the simple page-touch probes. This mode keeps an anonymous heap resident while it repeatedly walks all mapped files in extension-style rounds, touching fixed header locations plus pseudo-random record offsets. The default walk uses 8 rounds, 4 pseudo-random records per file per round, a 1 GiB resident heap, and both permuted and sequential module orders. This is still not an `.olean` parser, but it is closer to Lean's actual footprint shape because deserialized heap/object memory competes with file-backed mapped pages while the probe revisits mapped artifacts across multiple passes.
 
+Run `27877479705` added the default 8-round import-like walk:
+
+- Ubuntu full 20,000-file permuted walk: 0.68 seconds, about 8.7 GB max RSS, zero major faults, 121k minor faults, zero filesystem input.
+- macOS 15.7.7 full 20,000-file permuted walk: 35.61 seconds, about 6.8 GB max RSS, 460k page reclaims, 123k page faults, zero block input.
+- macOS 26.4 full 20,000-file permuted walk: 35.34 seconds, about 6.6 GB max RSS, 461k page reclaims, 131k page faults, zero block input.
+- The corresponding sequential walks took 0.64 seconds on Ubuntu, 15.04 seconds on macOS 15.7.7, and 16.07 seconds on macOS 26.4.
+- The simple page-touch probes ran after the walk probes, so they were now warm: the full permuted page-touch probe dropped to 2-4 seconds on macOS rather than the earlier 14-15 seconds.
+
+Run `27877552667` used the same footprint with a bounded 24-round stress walk and only the 20,000-file count:
+
+- Ubuntu permuted walk: 1.21 seconds, about 8.7 GB max RSS, zero major faults, 121k minor faults, zero filesystem input.
+- macOS 15.7.7 permuted walk: 74.71 seconds, about 8.0 GB max RSS, 683k page reclaims, 288k page faults, zero block input.
+- macOS 26.4 permuted walk: 84.14 seconds, about 7.4 GB max RSS, 758k page reclaims, 340k page faults, zero block input.
+- The corresponding sequential walks took 1.02 seconds on Ubuntu, 36.16 seconds on macOS 15.7.7, and 39.87 seconds on macOS 26.4.
+
+Updated conclusion after the import-like synthetic runs: repeated mmap-backed deserialization-shaped access plus a resident heap is enough to create a very large macOS/Linux split, reaching 75-84 seconds on macOS while Linux remains around 1 second. This does not fully explain every 130-170 second Lean run, but it is much closer than the one-pass page-touch control and supports the hypothesis that macOS VM/file-backed page handling interacts poorly with Lean's repeated import-finalization access pattern. The absence of block input again points away from physical disk I/O.
+
 Run `27825733871` completed the prefix bisection:
 
 - Ubuntu full prefix, equivalent to `import Mathlib`, took 3.92 seconds.
