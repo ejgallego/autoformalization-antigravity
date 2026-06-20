@@ -2,6 +2,8 @@
 
 Goal: isolate why `lake env lean --run BlueprintMain.lean` can be slow on macOS after a normal cached build.
 
+Draft upstream report checkpoint: `docs/lean-macos-mathlib-import-upstream-draft.md`. Do not submit or discuss upstream without explicit approval.
+
 Baseline from this Linux checkout on 2026-06-17 after `lake build`:
 
 ```text
