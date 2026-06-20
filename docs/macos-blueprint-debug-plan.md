@@ -297,7 +297,15 @@ Runs `27825733864` and `27825831532` completed the synthetic mmap control:
 
 Updated conclusion after the prefix and synthetic runs: plain "many file-backed private mmap regions" is not sufficient to reproduce Lean's slowdown. macOS is slower for the synthetic pattern, but Lean's deserialization/finalization access pattern, object graph, or persistent environment extension work is needed to get from single-digit seconds to 100s.
 
-The next synthetic run should use the updated footprint-sized defaults. The main comparison is no longer just "how many mmaps", but whether macOS scales badly with a Lean-sized mapped-file working set under a scattered page-touch order. If it still stays far below Lean, the remaining macOS-specific question becomes whether Lean's actual access pattern causes repeated page reclaim/refault behavior while it deserializes and finalizes the import graph.
+Run `27876818772` reran the synthetic control with the updated footprint-sized defaults:
+
+- All legs used 20,000 files, 192 KiB per file, 2 mappings per file, about 3.75 GB unique bytes, and about 7.5 GB mapped bytes.
+- The full 20,000-file permuted probe took 0.73 seconds on Ubuntu, with about 7.7 GB RSS, zero major faults, 160k minor faults, and zero filesystem input.
+- The same full permuted probe took 15.12 seconds on macOS 15.7.7, with about 7.9 GB RSS, 360k page reclaims, 120k page faults, and zero block input.
+- The same full permuted probe took 14.47 seconds on macOS 26.4, with about 7.9 GB RSS, 361k page reclaims, 120k page faults, and zero block input.
+- The immediately following full sequential probes were about 0.8 seconds on both macOS legs, with almost no page faults, so the first scattered touch order is the expensive synthetic shape.
+
+Updated conclusion after the footprint-sized synthetic run: macOS does have a real VM penalty for a Lean-sized scattered file-backed mmap working set, but the synthetic control still stays around 15 seconds rather than 100s+. The remaining macOS-specific question is whether Lean's actual deserialization/finalization access pattern causes repeated page reclaim/refault behavior while it walks the import graph and persistent environment extensions.
 
 The manual `.github/workflows/mathlib-import-memory-pressure.yml` workflow collects that next signal around the real `lake env lean --run CI/MathlibImportNoop.lean` command. It wraps the import with low-overhead before/after snapshots and during-run streams:
 
@@ -305,6 +313,18 @@ The manual `.github/workflows/mathlib-import-memory-pressure.yml` workflow colle
 - Linux: `/usr/bin/time -v`, `/proc/meminfo`, `/proc/vmstat`, `vmstat -s`, `vmstat 1`, and periodic process snapshots.
 
 This is meant to test whether "page reclaim" behavior is the important difference: Linux may be faulting or reusing pages in a way that avoids repeated expensive file-backed page-in work, while macOS may be cycling through file-backed VM objects during Lean's import finalization. The result to compare is the delta in page faults, page reclaims/pageins or reclaim-like counters, RSS, and process lifetime, not only the final wall-clock time.
+
+Run `27876818780` collected the memory-pressure signal for the real import:
+
+- Ubuntu: `lake env lean --run CI/MathlibImportNoop.lean` took 5.35 seconds, with 2.96 user, 2.31 sys, about 6.7 GB max RSS, zero major faults, 166,893 minor faults, and zero filesystem input.
+- Ubuntu `/proc/vmstat` moved by about 172k `pgfault`, 1 `pgmajfault`, and 40 `pgpgin`; `pgscan`, `pgsteal`, and `workingset_refault_*` stayed at zero.
+- macOS 26.4: the same command took 134.86 seconds, with 13.06 user, 17.38 sys, about 3.9 GB max RSS, 304,191 page reclaims, 445,995 page faults, and zero block input.
+- macOS 26.4 `vm_stat` deltas included about 2.25M translation faults, 521k pageins, 663k page reactivations, 84k compressions, and 71k decompressions.
+- macOS 15.7.7: the same command took 168.48 seconds, with 15.76 user, 32.23 sys, about 3.8 GB max RSS, 302,516 page reclaims, 460,277 page faults, and zero block input.
+- macOS 15.7.7 `vm_stat` deltas included about 2.90M translation faults, 580k pageins, 652k page reactivations, 159k compressions, and 125k decompressions.
+- Periodic process snapshots showed the macOS `lean` process sitting around 3.4-3.7 GB RSS and often only 10-40% CPU, while the Ubuntu `lean` process reached about 6.7 GB RSS and ran at about 97% CPU during its short import.
+
+Updated conclusion after the memory-pressure run: the difference is not just the raw number of page faults. Linux completes with hot-cache behavior, no reclaim/scan/refault activity, and almost no page-in movement. macOS reports zero block input too, but the import still causes hundreds of thousands of page reclaims plus roughly half a million `Pageins`, matching the earlier `fs_usage` `PAGE_IN_FILE` signal. That points at macOS VM/file-backed mapping behavior under Lean's actual import access pattern, not physical disk I/O or an obvious Lake/cache issue.
 
 Known-workaround check:
 
