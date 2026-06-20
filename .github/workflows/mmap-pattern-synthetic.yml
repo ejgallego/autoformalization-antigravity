@@ -27,6 +27,22 @@ on:
         description: Space-separated touch patterns to run in order
         required: false
         default: "permuted sequential"
+      walk_rounds:
+        description: Import-like repeated walk rounds
+        required: false
+        default: "8"
+      walk_records_per_file:
+        description: Pseudo-random records read per file and round
+        required: false
+        default: "4"
+      walk_heap_bytes:
+        description: Anonymous heap kept resident during import-like walks
+        required: false
+        default: "1073741824"
+      walk_counts:
+        description: Space-separated file counts for import-like walks
+        required: false
+        default: "5000 10000 20000"
 
 concurrency:
   group: mmap-pattern-synthetic-${{ github.ref }}
@@ -75,6 +91,10 @@ jobs:
           MMAP_PATTERN_PASSES: ${{ inputs.passes }}
           MMAP_PATTERN_COUNTS: ${{ inputs.counts }}
           MMAP_PATTERN_PATTERNS: ${{ inputs.patterns }}
+          MMAP_PATTERN_WALK_ROUNDS: ${{ inputs.walk_rounds }}
+          MMAP_PATTERN_WALK_RECORDS_PER_FILE: ${{ inputs.walk_records_per_file }}
+          MMAP_PATTERN_WALK_HEAP_BYTES: ${{ inputs.walk_heap_bytes }}
+          MMAP_PATTERN_WALK_COUNTS: ${{ inputs.walk_counts }}
         run: |
           set -euo pipefail
           bash scripts/mmap-pattern-ci.sh "mmap-pattern-out"

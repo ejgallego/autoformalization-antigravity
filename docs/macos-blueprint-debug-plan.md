@@ -281,6 +281,8 @@ The workflow records page size, unique bytes, mapped bytes, pages per map, and t
 
 The synthetic test answers a narrower question: does macOS itself scale badly for a Lean-like "many file-backed private mappings, then touch pages" pattern, even without Lean's deserialization and environment finalization work? If it scales normally, the remaining suspect is Lean's mapped-object access/finalization pattern. If it scales badly in the same direction as Lean, the upstream report should include the synthetic C repro as OS-level supporting evidence.
 
+The synthetic workflow now also runs an import-like `walk` probe before the simple page-touch probes. This mode keeps an anonymous heap resident while it repeatedly walks all mapped files in extension-style rounds, touching fixed header locations plus pseudo-random record offsets. The default walk uses 8 rounds, 4 pseudo-random records per file per round, a 1 GiB resident heap, and both permuted and sequential module orders. This is still not an `.olean` parser, but it is closer to Lean's actual footprint shape because deserialized heap/object memory competes with file-backed mapped pages while the probe revisits mapped artifacts across multiple passes.
+
 Run `27825733871` completed the prefix bisection:
 
 - Ubuntu full prefix, equivalent to `import Mathlib`, took 3.92 seconds.
